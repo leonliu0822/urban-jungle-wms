@@ -330,11 +330,27 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:0
   </div>
 </div>
 
+<!-- EDIT PRODUCT MODAL -->
+<div class="modal-overlay" id="edit-product-overlay" onclick="closeEditOutside(event)">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">✏️ 編輯商品</div>
+    <input type="hidden" id="ep-id">
+    <div class="form-group"><label class="form-label">商品名稱</label><input class="form-input" type="text" id="ep-name"></div>
+    <div class="form-group"><label class="form-label">分類</label><select class="form-select" id="ep-cat"><option value="蠟品">蠟品</option><option value="保養品">保養品</option><option value="耗材">耗材</option></select></div>
+    <div class="form-group"><label class="form-label">安全庫存量</label><input class="form-input" type="number" id="ep-safe" min="0" inputmode="numeric"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeEditProduct()">取消</button>
+      <button class="btn btn-primary" onclick="submitEditProduct()">儲存變更</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getFirestore, collection, doc, onSnapshot, addDoc, getDocs, updateDoc, serverTimestamp, query, orderBy, limit, increment } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { getFirestore, collection, doc, onSnapshot, addDoc, getDocs, updateDoc, deleteDoc, serverTimestamp, query, orderBy, limit, increment } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyAu4VnhoxlgZZsCpnhD184PAF9wlaOCEuw",
@@ -350,25 +366,8 @@ const db = getFirestore(app);
 
 const STORES = ['台北','新竹','台中','高雄'];
 const CAT_CLASS = {'蠟品':'tag-wax','保養品':'tag-care','耗材':'tag-supply'};
-const DEFAULT_PRODUCTS = [
-  {name:'硬蠟 (豆型)',cat:'蠟品',safe:20},{name:'軟蠟 (條狀)',cat:'蠟品',safe:15},
-  {name:'水溶性蠟',cat:'蠟品',safe:10},{name:'玫瑰蠟',cat:'蠟品',safe:8},
-  {name:'鎮靜精華液',cat:'保養品',safe:12},{name:'舒緩凝膠',cat:'保養品',safe:10},
-  {name:'毛孔收斂液',cat:'保養品',safe:8},{name:'不織布蠟紙',cat:'耗材',safe:50},
-  {name:'壓舌棒 (大)',cat:'耗材',safe:100},{name:'壓舌棒 (小)',cat:'耗材',safe:80},
-  {name:'一次性手套',cat:'耗材',safe:60},{name:'拋棄式床單',cat:'耗材',safe:30},
-];
-
 let products=[], logs=[], currentStore='全部', currentModal='in', currentPage='inventory';
 let batchType='in', batchQtys={};
-
-async function initProducts(){
-  const snap=await getDocs(collection(db,'products'));
-  if(snap.empty){
-    showToast('⚙️ 初始化商品資料...');
-    for(const p of DEFAULT_PRODUCTS){const inv={};STORES.forEach(s=>inv[s]=0);await addDoc(collection(db,'products'),{...p,inventory:inv,createdAt:serverTimestamp()});}
-  }
-}
 
 function listenProducts(){
   onSnapshot(collection(db,'products'),snap=>{
@@ -480,10 +479,47 @@ function renderAlert(){
 }
 
 function renderManage(){
+  if(!products.length){document.getElementById('manage-list').innerHTML='<div class="empty">尚無商品，請點上方「＋ 新增商品」</div>';return;}
   document.getElementById('manage-list').innerHTML=products.map(p=>`
-    <div class="inv-card"><div class="inv-card-header"><div class="inv-name">${p.name}</div><span class="tag ${CAT_CLASS[p.cat]||''}">${p.cat}</span></div>
-    <div style="font-size:12px;color:var(--muted)">安全庫存：${p.safe||0} 件</div></div>`).join('');
+    <div class="inv-card">
+      <div class="inv-card-header"><div class="inv-name">${p.name}</div><span class="tag ${CAT_CLASS[p.cat]||''}">${p.cat}</span></div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:10px">安全庫存：${p.safe||0} 件</div>
+      <div class="card-actions">
+        <button class="btn-sm" style="background:#1a1328;color:#8b78d8;border:1px solid #2a2040;flex:2" onclick="openEditProduct('${p.id}')">✏️ 編輯</button>
+        <button class="btn-sm btn-out" style="flex:1" onclick="deleteProduct('${p.id}','${p.name}')">🗑️ 刪除</button>
+      </div>
+    </div>`).join('');
 }
+
+window.deleteProduct=async function(pid,name){
+  if(!confirm(`確定要刪除「${name}」嗎？\n\n此操作會同時清除所有分店的庫存紀錄，無法復原。`))return;
+  try{
+    await deleteDoc(doc(db,'products',pid));
+    showToast(`🗑️ 已刪除：${name}`);
+  }catch(e){console.error(e);showToast('❌ 刪除失敗，請重試');}
+};
+
+window.openEditProduct=function(pid){
+  const p=products.find(x=>x.id===pid);if(!p)return;
+  document.getElementById('ep-id').value=pid;
+  document.getElementById('ep-name').value=p.name;
+  document.getElementById('ep-cat').value=p.cat;
+  document.getElementById('ep-safe').value=p.safe||0;
+  document.getElementById('edit-product-overlay').classList.add('open');
+};
+window.closeEditProduct=function(){document.getElementById('edit-product-overlay').classList.remove('open');};
+window.closeEditOutside=function(e){if(e.target===document.getElementById('edit-product-overlay'))closeEditProduct();};
+window.submitEditProduct=async function(){
+  const pid=document.getElementById('ep-id').value;
+  const name=document.getElementById('ep-name').value.trim();
+  const cat=document.getElementById('ep-cat').value;
+  const safe=parseInt(document.getElementById('ep-safe').value)||0;
+  if(!name){showToast('⚠️ 請輸入商品名稱');return;}
+  try{
+    await updateDoc(doc(db,'products',pid),{name,cat,safe});
+    closeEditProduct();showToast(`✅ 已更新：${name}`);
+  }catch(e){console.error(e);showToast('❌ 更新失敗，請重試');}
+};
 
 // ── SINGLE TX ──
 window.openModal=function(type,pid,store){
@@ -652,7 +688,7 @@ window.showToast=function(msg){
 };
 
 async function start(){
-  try{await initProducts();listenProducts();listenLogs();}
+  try{listenProducts();listenLogs();}
   catch(e){console.error(e);setSyncStatus(false);showToast('❌ 無法連線 Firebase');}
 }
 start();
