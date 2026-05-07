@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0e0d0b">
+<title>Urban Jungle WMS</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Noto+Sans+TC:wght@300;400;500;700&display=swap');
+:root{--bg:#0e0d0b;--surface:#191712;--surface2:#232018;--border:#2e2a23;--accent:#c8a84b;--accent2:#e8c96d;--danger:#e05c4b;--success:#5cb87a;--warn:#e0a03a;--text:#f0ead8;--muted:#7a7060}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{background:var(--bg);color:var(--text);font-family:'Noto Sans TC',sans-serif;font-size:14px;min-height:100vh;min-height:-webkit-fill-available}
+
+header{background:var(--surface);border-bottom:1px solid var(--border);padding:0 16px;display:flex;align-items:center;justify-content:space-between;height:52px;position:sticky;top:0;z-index:100}
+.logo{display:flex;align-items:center;gap:8px}
+.logo-icon{width:30px;height:30px;background:var(--accent);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:16px}
+.logo-text{font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;color:var(--accent2)}
+.logo-sub{font-size:9px;color:var(--muted);margin-top:-2px}
+.sync-status{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)}
+.sync-dot{width:7px;height:7px;border-radius:50%;background:var(--success);animation:pulse 2s infinite}
+.sync-dot.offline{background:var(--danger);animation:none}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+
+.bottom-nav{position:fixed;bottom:0;left:0;right:0;background:var(--surface);border-top:1px solid var(--border);display:flex;z-index:100;padding-bottom:env(safe-area-inset-bottom)}
+.bnav-item{flex:1;display:flex;flex-direction:column;align-items:center;padding:10px 4px 8px;cursor:pointer;color:var(--muted);font-size:10px;gap:3px;transition:color .15s;position:relative}
+.bnav-item.active{color:var(--accent)}
+.bnav-icon{font-size:20px}
+.bnav-badge{position:absolute;top:6px;right:calc(50% - 18px);background:var(--danger);color:#fff;font-size:9px;font-weight:700;border-radius:8px;padding:1px 4px;min-width:16px;text-align:center}
+
+.content{padding:16px;padding-bottom:calc(70px + env(safe-area-inset-bottom))}
+.page{display:none}.page.active{display:block}
+.page-title{font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2px;color:var(--accent2)}
+.page-sub{color:var(--muted);font-size:12px;margin-bottom:14px}
+
+.store-tabs{display:flex;gap:6px;margin-bottom:14px;overflow-x:auto;padding-bottom:4px;-webkit-overflow-scrolling:touch}
+.store-tabs::-webkit-scrollbar{display:none}
+.store-tab{padding:5px 14px;border-radius:20px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;font-size:12px;white-space:nowrap;font-family:'Noto Sans TC',sans-serif;transition:all .15s;flex-shrink:0}
+.store-tab.active{background:var(--accent);color:#0e0d0b;border-color:var(--accent);font-weight:700}
+
+.stats-row{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px}
+.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px}
+.stat-label{font-size:10px;color:var(--muted);margin-bottom:4px}
+.stat-value{font-size:28px;font-family:'Bebas Neue',sans-serif}
+
+.inv-filters{display:flex;gap:8px;margin-bottom:12px}
+.filter-select,.search-input{background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:7px 10px;border-radius:8px;font-size:13px;font-family:'Noto Sans TC',sans-serif;outline:none;flex:1}
+.filter-select{flex:0 0 auto}
+
+.inv-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:10px}
+.inv-card.low{border-color:#4d2018;background:#1e0e0a}
+.inv-card.warn{border-color:#4d3010}
+.inv-card-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px}
+.inv-name{font-weight:700;font-size:15px;flex:1;margin-right:8px}
+.tag{display:inline-block;padding:2px 8px;border-radius:12px;font-size:10px;font-weight:500}
+.tag-wax{background:#2d200a;color:#c8913a}
+.tag-care{background:#0e2318;color:#5cb87a}
+.tag-supply{background:#1a1328;color:#8b78d8}
+.store-qty-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:10px}
+.store-qty{background:var(--surface2);border-radius:7px;padding:8px 10px}
+.store-name{font-size:10px;color:var(--muted);margin-bottom:2px}
+.qty-val{font-family:'Bebas Neue',sans-serif;font-size:20px}
+.qty-ok{color:var(--success)}.qty-warn{color:var(--warn)}.qty-low{color:var(--danger)}
+.qty-safe{font-size:10px;color:var(--muted)}
+.card-actions{display:flex;gap:8px}
+.btn-sm{flex:1;padding:8px;font-size:13px;border-radius:7px;border:none;cursor:pointer;font-family:'Noto Sans TC',sans-serif;font-weight:700;transition:all .15s}
+.btn-in{background:#0e2318;color:var(--success);border:1px solid #1e4530}
+.btn-in:active{background:var(--success);color:#fff}
+.btn-out{background:#2d1410;color:var(--danger);border:1px solid #4d2018}
+.btn-out:active{background:var(--danger);color:#fff}
+
+.log-item{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:8px}
+.log-header{display:flex;justify-content:space-between;align-items:flex-start}
+.log-product{font-weight:600;font-size:14px}
+.log-meta{font-size:11px;color:var(--muted);margin-top:2px}
+.log-qty-badge{font-family:'Bebas Neue',sans-serif;font-size:22px}
+.log-in{color:var(--success)}.log-out{color:var(--danger)}
+.log-batch-tag{display:inline-block;border-radius:6px;font-size:10px;padding:2px 7px;margin-bottom:4px;font-weight:700}
+.log-batch-tag.in-tag{background:#0e2318;color:var(--success);border:1px solid #1e4530}
+.log-batch-tag.out-tag{background:#2d1410;color:var(--danger);border:1px solid #4d2018}
+.log-items-list{font-size:12px;color:var(--muted);margin-top:8px;border-top:1px solid var(--border);padding-top:8px;display:flex;flex-direction:column;gap:4px}
+.log-item-row{display:flex;justify-content:space-between;align-items:center}
+.log-filters{display:flex;gap:8px;margin-bottom:12px}
+
+.alert-card{background:#1e0e0a;border:1px solid #4d2018;border-radius:10px;padding:14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center}
+.alert-name{font-weight:700;font-size:14px;margin-bottom:3px}
+.alert-meta{font-size:12px;color:var(--muted)}
+.alert-qty{font-family:'Bebas Neue',sans-serif;font-size:24px}
+.alert-gap{font-size:11px;color:var(--danger)}
+
+/* FAB */
+.fab-wrap{position:fixed;right:16px;bottom:calc(76px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:10px;z-index:99}
+.fab{width:52px;height:52px;border-radius:50%;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 16px rgba(0,0,0,.4);transition:transform .15s;font-size:22px}
+.fab:active{transform:scale(.92)}
+.fab-in{background:var(--success);color:#fff}
+.fab-out{background:var(--danger);color:#fff}
+.fab-batch{background:var(--accent);color:#0e0d0b;font-size:18px}
+
+/* SINGLE MODAL */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:200;display:none;align-items:flex-end}
+.modal-overlay.open{display:flex}
+.modal{background:var(--surface);border-radius:20px 20px 0 0;padding:20px 20px calc(20px + env(safe-area-inset-bottom));width:100%;border-top:1px solid var(--border);max-height:90vh;overflow-y:auto}
+.modal-handle{width:40px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 16px}
+.modal-title{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:2px;color:var(--accent2);margin-bottom:16px}
+.form-group{margin-bottom:14px}
+.form-label{font-size:11px;color:var(--muted);margin-bottom:5px;display:block;letter-spacing:.5px;text-transform:uppercase}
+.form-input,.form-select{width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:12px 14px;border-radius:10px;font-size:16px;font-family:'Noto Sans TC',sans-serif;outline:none;-webkit-appearance:none}
+.form-input:focus,.form-select:focus{border-color:var(--accent)}
+.modal-actions{display:flex;gap:10px;margin-top:18px}
+.btn{padding:13px 20px;border-radius:10px;border:none;cursor:pointer;font-family:'Noto Sans TC',sans-serif;font-size:15px;font-weight:700;flex:1;transition:all .15s}
+.btn-ghost{background:var(--surface2);color:var(--text)}
+.btn-success-full{background:var(--success);color:#fff}
+.btn-danger-full{background:var(--danger);color:#fff}
+.btn-primary{background:var(--accent);color:#0e0d0b}
+
+/* BATCH MODAL - full screen */
+.batch-overlay{position:fixed;inset:0;background:var(--bg);z-index:300;display:none;flex-direction:column}
+.batch-overlay.open{display:flex}
+.batch-header{background:var(--surface);border-bottom:1px solid var(--border);padding:12px 16px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;gap:10px}
+.batch-title{font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:2px;color:var(--accent2);white-space:nowrap}
+.batch-header-right{display:flex;align-items:center;gap:8px}
+.batch-type-btns{display:flex;border-radius:8px;overflow:hidden;border:1px solid var(--border)}
+.batch-type-btn{padding:7px 14px;border:none;background:transparent;color:var(--muted);cursor:pointer;font-size:13px;font-weight:700;font-family:'Noto Sans TC',sans-serif;transition:all .15s;white-space:nowrap}
+.batch-type-btn.in.active{background:var(--success);color:#fff}
+.batch-type-btn.out.active{background:var(--danger);color:#fff}
+.batch-close{background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:8px;padding:7px 12px;cursor:pointer;font-size:13px;font-family:'Noto Sans TC',sans-serif;white-space:nowrap}
+
+.batch-toolbar{padding:10px 16px;border-bottom:1px solid var(--border);background:var(--surface2);flex-shrink:0;display:flex;gap:8px}
+.batch-store-select{background:var(--surface);border:1px solid var(--border);color:var(--text);padding:9px 12px;border-radius:9px;font-size:14px;font-family:'Noto Sans TC',sans-serif;outline:none;-webkit-appearance:none;flex:1}
+.batch-search-input{background:var(--surface);border:1px solid var(--border);color:var(--text);padding:9px 12px;border-radius:9px;font-size:14px;font-family:'Noto Sans TC',sans-serif;outline:none;flex:2}
+.batch-search-input:focus,.batch-store-select:focus{border-color:var(--accent)}
+
+.batch-body{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.batch-product-list{padding:0 16px 8px}
+.batch-product-item{display:flex;align-items:center;justify-content:space-between;padding:13px 0;border-bottom:1px solid var(--border)}
+.batch-product-item:last-child{border-bottom:none}
+.bpi-name{font-weight:600;font-size:14px}
+.bpi-cat{font-size:11px;color:var(--muted);margin-top:2px}
+.qty-stepper{display:flex;align-items:center;gap:4px}
+.stepper-btn{width:36px;height:36px;border-radius:9px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-weight:700;flex-shrink:0;transition:all .15s;line-height:1}
+.stepper-btn:active{background:var(--accent);color:#0e0d0b;border-color:var(--accent)}
+.stepper-val{width:40px;text-align:center;font-family:'Bebas Neue',sans-serif;font-size:22px;color:var(--muted)}
+.stepper-val.has-qty{color:var(--accent2)}
+
+.batch-footer{background:var(--surface);border-top:1px solid var(--border);padding:12px 16px calc(12px + env(safe-area-inset-bottom));flex-shrink:0}
+.batch-summary{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;font-size:13px}
+.batch-summary-stat{color:var(--muted)}
+.batch-summary-stat span{font-family:'Bebas Neue',sans-serif;font-size:20px;color:var(--accent2);letter-spacing:.5px}
+.batch-footer-row{display:flex;gap:8px}
+.batch-note-input{background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:12px 14px;border-radius:10px;font-size:15px;font-family:'Noto Sans TC',sans-serif;outline:none;flex:1}
+.batch-note-input:focus{border-color:var(--accent)}
+.batch-submit-btn{padding:12px 20px;border-radius:10px;border:none;cursor:pointer;font-family:'Noto Sans TC',sans-serif;font-size:15px;font-weight:700;white-space:nowrap;transition:all .15s}
+.batch-submit-btn.in-mode{background:var(--success);color:#fff}
+.batch-submit-btn.out-mode{background:var(--danger);color:#fff}
+.batch-submit-btn:disabled{opacity:.5;cursor:not-allowed}
+
+.toast{position:fixed;top:62px;left:50%;transform:translateX(-50%) translateY(-20px);background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:10px 20px;color:var(--text);font-size:13px;white-space:nowrap;box-shadow:0 8px 32px rgba(0,0,0,.4);z-index:500;opacity:0;transition:all .3s ease;pointer-events:none}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.loading{text-align:center;color:var(--muted);padding:40px 0;font-size:13px}
+.spinner{width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 12px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.empty{text-align:center;color:var(--muted);padding:40px 0;font-size:13px}
+
+@media(min-width:768px){
+  .content{max-width:800px;margin:0 auto;padding:24px;padding-bottom:80px}
+  .stats-row{grid-template-columns:repeat(4,1fr)}
+  .store-qty-grid{grid-template-columns:repeat(4,1fr)}
+  .bottom-nav{max-width:600px;left:50%;transform:translateX(-50%);border-radius:20px 20px 0 0;border-left:1px solid var(--border);border-right:1px solid var(--border)}
+  .fab-wrap{right:calc(50% - 416px)}
+  .batch-overlay{align-items:center;justify-content:center;background:rgba(0,0,0,.8)}
+  .batch-overlay .batch-modal-inner{max-width:640px;width:100%;max-height:90vh;border-radius:16px;overflow:hidden;display:flex;flex-direction:column;border:1px solid var(--border)}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">🌿</div>
+    <div>
+      <div class="logo-text">Urban Jungle</div>
+      <div class="logo-sub">倉庫管理系統</div>
+    </div>
+  </div>
+  <div class="sync-status">
+    <div class="sync-dot" id="sync-dot"></div>
+    <span id="sync-text">連線中...</span>
+  </div>
+</header>
+
+<div class="content">
+  <!-- INVENTORY -->
+  <div id="page-inventory" class="page active">
+    <div class="page-title">即時庫存</div>
+    <div class="page-sub" id="last-update">讀取中...</div>
+    <div class="store-tabs">
+      <button class="store-tab active" onclick="filterStore('全部',this)">全部</button>
+      <button class="store-tab" onclick="filterStore('台北',this)">台北</button>
+      <button class="store-tab" onclick="filterStore('新竹',this)">新竹</button>
+      <button class="store-tab" onclick="filterStore('台中',this)">台中</button>
+      <button class="store-tab" onclick="filterStore('高雄',this)">高雄</button>
+    </div>
+    <div class="stats-row">
+      <div class="stat-card"><div class="stat-label">商品種類</div><div class="stat-value" style="color:var(--accent2)" id="stat-total">—</div></div>
+      <div class="stat-card"><div class="stat-label">庫存正常</div><div class="stat-value" style="color:var(--success)" id="stat-ok">—</div></div>
+      <div class="stat-card"><div class="stat-label">低量警示</div><div class="stat-value" style="color:var(--warn)" id="stat-warn">—</div></div>
+      <div class="stat-card"><div class="stat-label">緊急補貨</div><div class="stat-value" style="color:var(--danger)" id="stat-low">—</div></div>
+    </div>
+    <div class="inv-filters">
+      <input class="search-input" id="search-input" placeholder="🔍 搜尋商品..." oninput="renderCards()">
+      <select class="filter-select" id="cat-filter" onchange="renderCards()">
+        <option value="">全部</option><option value="蠟品">蠟品</option>
+        <option value="保養品">保養品</option><option value="耗材">耗材</option>
+      </select>
+    </div>
+    <div id="inv-list"><div class="loading"><div class="spinner"></div>讀取庫存資料...</div></div>
+  </div>
+
+  <!-- LOG -->
+  <div id="page-log" class="page">
+    <div class="page-title">進出貨紀錄</div>
+    <div class="page-sub">完整交易明細</div>
+    <div class="log-filters">
+      <select class="filter-select" id="log-store" onchange="renderLog()" style="flex:1"><option value="">全部分店</option><option>台北</option><option>新竹</option><option>台中</option><option>高雄</option></select>
+      <select class="filter-select" id="log-type" onchange="renderLog()" style="flex:1"><option value="">全部類型</option><option value="進貨">進貨</option><option value="出貨">出貨</option></select>
+    </div>
+    <div id="log-list"><div class="loading"><div class="spinner"></div>讀取紀錄...</div></div>
+  </div>
+
+  <!-- ALERT -->
+  <div id="page-alert" class="page">
+    <div class="page-title">庫存警示</div>
+    <div class="page-sub">需要補貨的品項</div>
+    <div id="alert-list"><div class="loading"><div class="spinner"></div>分析中...</div></div>
+  </div>
+
+  <!-- MANAGE -->
+  <div id="page-manage" class="page">
+    <div class="page-title">商品管理</div>
+    <div class="page-sub">新增或管理商品</div>
+    <button class="btn btn-primary" style="width:100%;margin-bottom:16px;font-size:15px;padding:13px" onclick="openAddProduct()">＋ 新增商品</button>
+    <div id="manage-list"><div class="loading"><div class="spinner"></div>讀取商品...</div></div>
+  </div>
+</div>
+
+<!-- FABs -->
+<div class="fab-wrap">
+  <button class="fab fab-batch" onclick="openBatch()" title="批次訂單">📋</button>
+  <button class="fab fab-in" onclick="openModal('in')" title="單品進貨">＋</button>
+  <button class="fab fab-out" onclick="openModal('out')" title="單品出貨">－</button>
+</div>
+
+<!-- BOTTOM NAV -->
+<nav class="bottom-nav">
+  <div class="bnav-item active" id="bnav-inventory" onclick="switchPage('inventory',this)"><div class="bnav-icon">📦</div><div>庫存</div></div>
+  <div class="bnav-item" id="bnav-log" onclick="switchPage('log',this)"><div class="bnav-icon">📋</div><div>紀錄</div></div>
+  <div class="bnav-item" id="bnav-alert" onclick="switchPage('alert',this)"><div class="bnav-icon">⚠️</div><div>警示</div><div class="bnav-badge" id="alert-badge" style="display:none">0</div></div>
+  <div class="bnav-item" id="bnav-manage" onclick="switchPage('manage',this)"><div class="bnav-icon">⚙️</div><div>管理</div></div>
+</nav>
+
+<!-- SINGLE TX MODAL -->
+<div class="modal-overlay" id="modal-overlay" onclick="closeModalOutside(event)">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="modal-title">新增進貨</div>
+    <div class="form-group"><label class="form-label">分店</label><select class="form-select" id="m-store"><option>台北</option><option>新竹</option><option>台中</option><option>高雄</option></select></div>
+    <div class="form-group"><label class="form-label">商品</label><select class="form-select" id="m-product"></select></div>
+    <div class="form-group"><label class="form-label">數量</label><input class="form-input" type="number" id="m-qty" min="1" value="1" inputmode="numeric"></div>
+    <div class="form-group"><label class="form-label">備註（選填）</label><input class="form-input" type="text" id="m-note" placeholder="備註說明..."></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">取消</button>
+      <button class="btn" id="modal-confirm" onclick="submitTransaction()">確認進貨</button>
+    </div>
+  </div>
+</div>
+
+<!-- ADD PRODUCT MODAL -->
+<div class="modal-overlay" id="add-product-overlay" onclick="closeAddOutside(event)">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">新增商品</div>
+    <div class="form-group"><label class="form-label">商品名稱</label><input class="form-input" type="text" id="ap-name" placeholder="例：玫瑰蠟"></div>
+    <div class="form-group"><label class="form-label">分類</label><select class="form-select" id="ap-cat"><option value="蠟品">蠟品</option><option value="保養品">保養品</option><option value="耗材">耗材</option></select></div>
+    <div class="form-group"><label class="form-label">安全庫存量</label><input class="form-input" type="number" id="ap-safe" value="10" min="1" inputmode="numeric"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeAddProduct()">取消</button>
+      <button class="btn btn-primary" onclick="submitAddProduct()">新增商品</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════ BATCH ORDER - FULL SCREEN ══════ -->
+<div class="batch-overlay" id="batch-overlay">
+  <div class="batch-modal-inner" style="background:var(--surface);flex:1;display:flex;flex-direction:column;overflow:hidden">
+
+    <div class="batch-header">
+      <div class="batch-title" id="batch-title">批次進貨訂單</div>
+      <div class="batch-header-right">
+        <div class="batch-type-btns">
+          <button class="batch-type-btn in active" id="bbtn-in" onclick="setBatchType('in')">▲ 進貨</button>
+          <button class="batch-type-btn out" id="bbtn-out" onclick="setBatchType('out')">▼ 出貨</button>
+        </div>
+        <button class="batch-close" onclick="closeBatch()">✕</button>
+      </div>
+    </div>
+
+    <div class="batch-toolbar">
+      <select class="batch-store-select" id="batch-store"><option>台北</option><option>新竹</option><option>台中</option><option>高雄</option></select>
+      <input class="batch-search-input" id="batch-search" placeholder="🔍 搜尋品項..." oninput="renderBatchList()">
+    </div>
+
+    <div class="batch-body">
+      <div class="batch-product-list" id="batch-product-list">
+        <div class="loading"><div class="spinner"></div>載入商品...</div>
+      </div>
+    </div>
+
+    <div class="batch-footer">
+      <div class="batch-summary">
+        <div class="batch-summary-stat">已選 <span id="b-count">0</span> 種品項，共 <span id="b-total">0</span> 件</div>
+        <div style="font-size:11px;color:var(--muted)">點 ＋ / − 調整數量</div>
+      </div>
+      <div class="batch-footer-row">
+        <input class="batch-note-input" id="batch-note" type="text" placeholder="備註：廠商 / 客戶名稱…">
+        <button class="batch-submit-btn in-mode" id="batch-submit" onclick="submitBatch()">確認進貨</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getFirestore, collection, doc, onSnapshot, addDoc, getDocs, updateDoc, serverTimestamp, query, orderBy, limit, increment } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAu4VnhoxlgZZsCpnhD184PAF9wlaOCEuw",
+  authDomain: "urban-jungle-wms.firebaseapp.com",
+  projectId: "urban-jungle-wms",
+  storageBucket: "urban-jungle-wms.firebasestorage.app",
+  messagingSenderId: "673991485333",
+  appId: "1:673991485333:web:2f41f146e1d209bbe0f89c"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+
+const STORES = ['台北','新竹','台中','高雄'];
+const CAT_CLASS = {'蠟品':'tag-wax','保養品':'tag-care','耗材':'tag-supply'};
+const DEFAULT_PRODUCTS = [
+  {name:'硬蠟 (豆型)',cat:'蠟品',safe:20},{name:'軟蠟 (條狀)',cat:'蠟品',safe:15},
+  {name:'水溶性蠟',cat:'蠟品',safe:10},{name:'玫瑰蠟',cat:'蠟品',safe:8},
+  {name:'鎮靜精華液',cat:'保養品',safe:12},{name:'舒緩凝膠',cat:'保養品',safe:10},
+  {name:'毛孔收斂液',cat:'保養品',safe:8},{name:'不織布蠟紙',cat:'耗材',safe:50},
+  {name:'壓舌棒 (大)',cat:'耗材',safe:100},{name:'壓舌棒 (小)',cat:'耗材',safe:80},
+  {name:'一次性手套',cat:'耗材',safe:60},{name:'拋棄式床單',cat:'耗材',safe:30},
+];
+
+let products=[], logs=[], currentStore='全部', currentModal='in', currentPage='inventory';
+let batchType='in', batchQtys={};
+
+async function initProducts(){
+  const snap=await getDocs(collection(db,'products'));
+  if(snap.empty){
+    showToast('⚙️ 初始化商品資料...');
+    for(const p of DEFAULT_PRODUCTS){const inv={};STORES.forEach(s=>inv[s]=0);await addDoc(collection(db,'products'),{...p,inventory:inv,createdAt:serverTimestamp()});}
+  }
+}
+
+function listenProducts(){
+  onSnapshot(collection(db,'products'),snap=>{
+    products=snap.docs.map(d=>({id:d.id,...d.data()}));
+    products.sort((a,b)=>{const o=['蠟品','保養品','耗材'];return o.indexOf(a.cat)-o.indexOf(b.cat)||a.name.localeCompare(b.name,'zh-TW');});
+    renderCards();renderAlert();renderManage();updateStats();populateProductSelect();
+    document.getElementById('last-update').textContent='即時同步中 · '+new Date().toLocaleTimeString('zh-TW',{hour12:false});
+    setSyncStatus(true);
+    if(document.getElementById('batch-overlay').classList.contains('open'))renderBatchList();
+  },()=>setSyncStatus(false));
+}
+
+function listenLogs(){
+  const q=query(collection(db,'logs'),orderBy('time','desc'),limit(300));
+  onSnapshot(q,snap=>{logs=snap.docs.map(d=>({id:d.id,...d.data()}));if(currentPage==='log')renderLog();});
+}
+
+function setSyncStatus(online){
+  document.getElementById('sync-dot').className='sync-dot'+(online?'':' offline');
+  document.getElementById('sync-text').textContent=online?'即時同步':'連線中斷';
+}
+
+function updateStats(){
+  const stores=currentStore==='全部'?STORES:[currentStore];
+  let ok=0,warn=0,low=0;
+  products.forEach(p=>{
+    const inv=p.inventory||{};let hasLow=false,hasWarn=false;
+    stores.forEach(s=>{const q=inv[s]||0;if(q<=(p.safe||0)*.5)hasLow=true;else if(q<=(p.safe||0))hasWarn=true;});
+    if(hasLow)low++;else if(hasWarn)warn++;else ok++;
+  });
+  document.getElementById('stat-total').textContent=products.length;
+  document.getElementById('stat-ok').textContent=ok;
+  document.getElementById('stat-warn').textContent=warn;
+  document.getElementById('stat-low').textContent=low;
+  const alertN=products.reduce((acc,p)=>acc+STORES.filter(s=>(p.inventory||{})[s]<=(p.safe||0)).length,0);
+  const badge=document.getElementById('alert-badge');
+  badge.style.display=alertN>0?'block':'none';badge.textContent=alertN;
+}
+
+function renderCards(){
+  updateStats();
+  const search=(document.getElementById('search-input')?.value||'').toLowerCase();
+  const cat=document.getElementById('cat-filter')?.value||'';
+  const stores=currentStore==='全部'?STORES:[currentStore];
+  const filtered=products.filter(p=>(!cat||p.cat===cat)&&(!search||p.name.toLowerCase().includes(search)));
+  if(!filtered.length){document.getElementById('inv-list').innerHTML='<div class="empty">沒有符合的商品</div>';return;}
+  document.getElementById('inv-list').innerHTML=filtered.map(p=>{
+    const inv=p.inventory||{};
+    const hasLow=stores.some(s=>(inv[s]||0)<=(p.safe||0)*.5);
+    const hasWarn=!hasLow&&stores.some(s=>(inv[s]||0)<=(p.safe||0));
+    const storeQtys=stores.map(s=>{
+      const q=inv[s]||0;const qCls=q<=(p.safe||0)*.5?'qty-low':q<=(p.safe||0)?'qty-warn':'qty-ok';
+      return `<div class="store-qty"><div class="store-name">${s}</div><div class="qty-val ${qCls}">${q}</div><div class="qty-safe">安全: ${p.safe||0}</div></div>`;
+    }).join('');
+    return `<div class="inv-card ${hasLow?'low':hasWarn?'warn':''}">
+      <div class="inv-card-header"><div class="inv-name">${p.name}</div><span class="tag ${CAT_CLASS[p.cat]||''}">${p.cat}</span></div>
+      <div class="store-qty-grid">${storeQtys}</div>
+      <div class="card-actions">
+        <button class="btn-sm btn-in" onclick="quickTx('in','${p.id}')">＋ 進貨</button>
+        <button class="btn-sm btn-out" onclick="quickTx('out','${p.id}')">－ 出貨</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderLog(){
+  const sf=document.getElementById('log-store')?.value||'';
+  const tf=document.getElementById('log-type')?.value||'';
+  const filtered=logs.filter(l=>(!sf||l.store===sf)&&(!tf||l.type===tf));
+  if(!filtered.length){document.getElementById('log-list').innerHTML='<div class="empty">沒有紀錄</div>';return;}
+  document.getElementById('log-list').innerHTML=filtered.map(l=>{
+    const t=l.time?.toDate?l.time.toDate():new Date(l.time||Date.now());
+    const isIn=l.type==='進貨';
+    const timeStr=t.toLocaleString('zh-TW',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false});
+    if(l.isBatch&&l.items){
+      const totalQty=l.items.reduce((a,i)=>a+i.qty,0);
+      const itemRows=l.items.map(it=>`<div class="log-item-row"><span>${it.name}</span><span style="font-weight:700;color:${isIn?'var(--success)':'var(--danger)'}">${isIn?'+':'-'}${it.qty}</span></div>`).join('');
+      return `<div class="log-item" style="display:block">
+        <div class="log-header">
+          <div><span class="log-batch-tag ${isIn?'in-tag':'out-tag'}">${isIn?'▲ 批次進貨':'▼ 批次出貨'} · ${l.items.length} 項</span><div class="log-meta">${l.store} · ${timeStr}${l.note?' · '+l.note:''}</div></div>
+          <div style="text-align:right;flex-shrink:0;margin-left:12px"><div class="log-qty-badge ${isIn?'log-in':'log-out'}">${isIn?'+':'-'}${totalQty}</div><div style="font-size:10px;color:var(--muted)">件</div></div>
+        </div>
+        <div class="log-items-list">${itemRows}</div>
+      </div>`;
+    }
+    return `<div class="log-item">
+      <div><div class="log-product">${l.product}</div><div class="log-meta">${l.store} · ${timeStr}${l.note?' · '+l.note:''}</div></div>
+      <div style="text-align:right;flex-shrink:0;margin-left:12px">
+        <div class="log-qty-badge ${isIn?'log-in':'log-out'}">${isIn?'+':'-'}${l.qty}</div>
+        <div style="font-size:11px;color:${isIn?'var(--success)':'var(--danger)'}">${isIn?'▲ 進貨':'▼ 出貨'}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderAlert(){
+  let items=[];
+  products.forEach(p=>{const inv=p.inventory||{};STORES.forEach(s=>{const q=inv[s]||0;if(q<=(p.safe||0))items.push({p,s,q});});});
+  if(!items.length){document.getElementById('alert-list').innerHTML='<div class="empty" style="color:var(--success)">✅ 所有庫存正常！</div>';return;}
+  items.sort((a,b)=>(a.q/(a.p.safe||1))-(b.q/(b.p.safe||1)));
+  document.getElementById('alert-list').innerHTML=items.map(({p,s,q})=>{
+    const gap=(p.safe||0)-q;const isLow=q<=(p.safe||0)*.5;
+    return `<div class="alert-card">
+      <div><div class="alert-name">${p.name}</div><div class="alert-meta"><span class="tag ${CAT_CLASS[p.cat]||''}">${p.cat}</span> · ${s}</div></div>
+      <div style="text-align:right"><div class="alert-qty ${isLow?'qty-low':'qty-warn'}">${q}</div><div class="alert-gap">缺 ${gap} 件</div>
+      <button class="btn-sm btn-in" style="margin-top:6px;padding:6px 12px" onclick="quickTx('in','${p.id}','${s}')">補貨</button></div>
+    </div>`;
+  }).join('');
+}
+
+function renderManage(){
+  document.getElementById('manage-list').innerHTML=products.map(p=>`
+    <div class="inv-card"><div class="inv-card-header"><div class="inv-name">${p.name}</div><span class="tag ${CAT_CLASS[p.cat]||''}">${p.cat}</span></div>
+    <div style="font-size:12px;color:var(--muted)">安全庫存：${p.safe||0} 件</div></div>`).join('');
+}
+
+// ── SINGLE TX ──
+window.openModal=function(type,pid,store){
+  currentModal=type;const isIn=type==='in';
+  document.getElementById('modal-title').textContent=isIn?'➕ 新增進貨':'➖ 新增出貨';
+  const btn=document.getElementById('modal-confirm');
+  btn.className='btn '+(isIn?'btn-success-full':'btn-danger-full');btn.textContent=isIn?'確認進貨':'確認出貨';
+  populateProductSelect();
+  if(pid)document.getElementById('m-product').value=pid;
+  if(store)document.getElementById('m-store').value=store;
+  document.getElementById('m-qty').value=1;document.getElementById('m-note').value='';
+  document.getElementById('modal-overlay').classList.add('open');
+};
+window.quickTx=function(type,pid,store){openModal(type,pid,store);};
+window.closeModal=function(){document.getElementById('modal-overlay').classList.remove('open');};
+window.closeModalOutside=function(e){if(e.target===document.getElementById('modal-overlay'))closeModal();};
+window.submitTransaction=async function(){
+  const store=document.getElementById('m-store').value;
+  const pid=document.getElementById('m-product').value;
+  const qty=parseInt(document.getElementById('m-qty').value);
+  const note=document.getElementById('m-note').value.trim();
+  if(!qty||qty<1){showToast('⚠️ 請輸入正確數量');return;}
+  const p=products.find(x=>x.id===pid);if(!p){showToast('⚠️ 請選擇商品');return;}
+  const curQty=(p.inventory||{})[store]||0;
+  if(currentModal==='out'&&curQty<qty){showToast(`❌ 庫存不足！${store} 現有 ${curQty} 件`);return;}
+  const btn=document.getElementById('modal-confirm');btn.textContent='處理中...';btn.disabled=true;
+  try{
+    const delta=currentModal==='in'?qty:-qty;
+    await updateDoc(doc(db,'products',pid),{[`inventory.${store}`]:increment(delta)});
+    await addDoc(collection(db,'logs'),{product:p.name,productId:pid,store,type:currentModal==='in'?'進貨':'出貨',qty,note,isBatch:false,time:serverTimestamp()});
+    closeModal();showToast(`${currentModal==='in'?'✅':'📤'} ${store} · ${p.name} ${currentModal==='in'?'進貨':'出貨'} ${qty} 件`);
+  }catch(e){console.error(e);showToast('❌ 操作失敗，請檢查網路');}
+  finally{btn.disabled=false;}
+};
+function populateProductSelect(){
+  document.getElementById('m-product').innerHTML=products.map(p=>`<option value="${p.id}">${p.name} (${p.cat})</option>`).join('');
+}
+
+// ── ADD PRODUCT ──
+window.openAddProduct=function(){document.getElementById('ap-name').value='';document.getElementById('ap-safe').value=10;document.getElementById('add-product-overlay').classList.add('open');};
+window.closeAddProduct=function(){document.getElementById('add-product-overlay').classList.remove('open');};
+window.closeAddOutside=function(e){if(e.target===document.getElementById('add-product-overlay'))closeAddProduct();};
+window.submitAddProduct=async function(){
+  const name=document.getElementById('ap-name').value.trim();
+  const cat=document.getElementById('ap-cat').value;
+  const safe=parseInt(document.getElementById('ap-safe').value)||10;
+  if(!name){showToast('⚠️ 請輸入商品名稱');return;}
+  const inv={};STORES.forEach(s=>inv[s]=0);
+  await addDoc(collection(db,'products'),{name,cat,safe,inventory:inv,createdAt:serverTimestamp()});
+  closeAddProduct();showToast(`✅ 已新增商品：${name}`);
+};
+
+// ══════════════════
+// ── BATCH ORDER ──
+// ══════════════════
+window.openBatch=function(){
+  batchQtys={};batchType='in';
+  document.getElementById('bbtn-in').classList.add('active');
+  document.getElementById('bbtn-out').classList.remove('active');
+  document.getElementById('batch-submit').className='batch-submit-btn in-mode';
+  document.getElementById('batch-submit').textContent='確認進貨';
+  document.getElementById('batch-title').textContent='批次進貨訂單';
+  document.getElementById('batch-note').value='';
+  document.getElementById('batch-search').value='';
+  renderBatchList();updateBatchSummary();
+  document.getElementById('batch-overlay').classList.add('open');
+};
+window.closeBatch=function(){document.getElementById('batch-overlay').classList.remove('open');};
+
+window.setBatchType=function(type){
+  batchType=type;const isIn=type==='in';
+  document.getElementById('bbtn-in').classList.toggle('active',isIn);
+  document.getElementById('bbtn-out').classList.toggle('active',!isIn);
+  document.getElementById('batch-submit').className='batch-submit-btn '+(isIn?'in-mode':'out-mode');
+  document.getElementById('batch-submit').textContent=isIn?'確認進貨':'確認出貨';
+  document.getElementById('batch-title').textContent=isIn?'批次進貨訂單':'批次出貨訂單';
+};
+
+window.renderBatchList=function(){
+  const search=(document.getElementById('batch-search')?.value||'').toLowerCase();
+  const filtered=products.filter(p=>!search||p.name.toLowerCase().includes(search)||p.cat.includes(search));
+  document.getElementById('batch-product-list').innerHTML=filtered.length?filtered.map(p=>{
+    const q=batchQtys[p.id]||0;
+    return `<div class="batch-product-item">
+      <div style="flex:1;min-width:0">
+        <div class="bpi-name">${p.name}</div>
+        <div class="bpi-cat"><span class="tag ${CAT_CLASS[p.cat]||''}">${p.cat}</span></div>
+      </div>
+      <div class="qty-stepper">
+        <button class="stepper-btn" onclick="batchAdj('${p.id}',-1)">−</button>
+        <div class="stepper-val ${q>0?'has-qty':''}" id="bq-${p.id}">${q}</div>
+        <button class="stepper-btn" onclick="batchAdj('${p.id}',1)">＋</button>
+      </div>
+    </div>`;
+  }).join(''):'<div class="empty">沒有符合品項</div>';
+};
+
+window.batchAdj=function(pid,delta){
+  const cur=batchQtys[pid]||0;const next=Math.max(0,cur+delta);
+  if(next===0)delete batchQtys[pid];else batchQtys[pid]=next;
+  const el=document.getElementById('bq-'+pid);
+  if(el){el.textContent=next;el.className='stepper-val '+(next>0?'has-qty':'');}
+  updateBatchSummary();
+};
+
+function updateBatchSummary(){
+  const pids=Object.keys(batchQtys);
+  const total=pids.reduce((a,k)=>a+(batchQtys[k]||0),0);
+  document.getElementById('b-count').textContent=pids.length;
+  document.getElementById('b-total').textContent=total;
+}
+
+window.submitBatch=async function(){
+  const store=document.getElementById('batch-store').value;
+  const note=document.getElementById('batch-note').value.trim();
+  const entries=Object.entries(batchQtys).filter(([,q])=>q>0);
+  if(!entries.length){showToast('⚠️ 請先選擇品項與數量');return;}
+
+  if(batchType==='out'){
+    for(const [pid,qty] of entries){
+      const p=products.find(x=>x.id===pid);
+      const cur=(p?.inventory||{})[store]||0;
+      if(cur<qty){showToast(`❌ ${p?.name} 庫存不足（${store} 現有 ${cur} 件）`);return;}
+    }
+  }
+
+  const btn=document.getElementById('batch-submit');
+  btn.textContent='送出中...';btn.disabled=true;
+
+  try{
+    const isIn=batchType==='in';
+    const logItems=[];
+    for(const [pid,qty] of entries){
+      const p=products.find(x=>x.id===pid);if(!p)continue;
+      await updateDoc(doc(db,'products',pid),{[`inventory.${store}`]:increment(isIn?qty:-qty)});
+      logItems.push({productId:pid,name:p.name,qty});
+    }
+    const totalQty=entries.reduce((a,[,q])=>a+q,0);
+    await addDoc(collection(db,'logs'),{
+      store,type:isIn?'進貨':'出貨',isBatch:true,items:logItems,
+      product:`批次${isIn?'進貨':'出貨'} ${logItems.length} 項`,
+      qty:totalQty,note,time:serverTimestamp()
+    });
+    closeBatch();
+    showToast(`${isIn?'✅':'📤'} ${store} 批次${isIn?'進貨':'出貨'} ${logItems.length} 種，共 ${totalQty} 件`);
+  }catch(e){console.error(e);showToast('❌ 操作失敗，請檢查網路');}
+  finally{btn.disabled=false;}
+};
+
+// ── NAV ──
+window.switchPage=function(page,el){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.bnav-item').forEach(n=>n.classList.remove('active'));
+  document.getElementById('page-'+page).classList.add('active');el.classList.add('active');
+  currentPage=page;
+  if(page==='log')renderLog();if(page==='alert')renderAlert();if(page==='inventory')renderCards();
+};
+window.filterStore=function(store,el){
+  currentStore=store;document.querySelectorAll('.store-tab').forEach(t=>t.classList.remove('active'));
+  el.classList.add('active');renderCards();updateStats();
+};
+
+window.showToast=function(msg){
+  const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'),3000);
+};
+
+async function start(){
+  try{await initProducts();listenProducts();listenLogs();}
+  catch(e){console.error(e);setSyncStatus(false);showToast('❌ 無法連線 Firebase');}
+}
+start();
+</script>
+</body>
+</html>
