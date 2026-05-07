@@ -208,7 +208,7 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:0
       <div class="stat-card"><div class="stat-label">緊急補貨</div><div class="stat-value" style="color:var(--danger)" id="stat-low">—</div></div>
     </div>
     <div class="inv-filters">
-      <input class="search-input" id="search-input" placeholder="🔍 搜尋商品..." oninput="renderCards()">
+      <input class="search-input" id="search-input" placeholder="搜尋商品名稱..." oninput="renderCards()" type="search" autocomplete="off">
       <select class="filter-select" id="cat-filter" onchange="renderCards()">
         <option value="">全部</option><option value="蠟品">蠟品</option>
         <option value="保養品">保養品</option><option value="耗材">耗材</option>
