@@ -205,7 +205,7 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:0
     </div>
     <div class="inv-filters">
       <input class="search-input" id="search-input" placeholder="搜尋商品名稱..." oninput="renderCards()" type="search" autocomplete="off">
-      <select class="filter-select" id="cat-filter" onchange="renderCards()">
+      <select class="filter-select" id="cat-filter" onchange="renderCards()" oninput="renderCards()">
         <option value="">全部</option><option value="蠟品">蠟品</option>
         <option value="保養品">保養品</option><option value="耗材">耗材</option>
       </select>
@@ -218,16 +218,16 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:0
     <div class="page-title">進出貨紀錄</div>
     <div class="page-sub">完整交易明細</div>
     <div class="log-filters" style="flex-wrap:wrap;gap:8px">
-      <select class="filter-select" id="log-store" onchange="renderLog()" style="flex:1;min-width:80px"><option value="">全部分店</option><option>台北</option><option>新竹</option><option>台中</option><option>高雄</option></select>
-      <select class="filter-select" id="log-type" onchange="renderLog()" style="flex:1;min-width:80px"><option value="">全部類型</option><option value="進貨">進貨</option><option value="出貨">出貨</option></select>
-      <select class="filter-select" id="log-subtype" onchange="renderLog()" style="flex:1;min-width:80px"><option value="">全部出貨類型</option><option value="出售">💰 出售</option><option value="店用">🏪 店用</option><option value="贈送">🎁 贈送</option></select>
+      <select class="filter-select" id="log-store" onchange="renderLog()" oninput="renderLog()" style="flex:1;min-width:80px"><option value="">全部分店</option><option>台北</option><option>新竹</option><option>台中</option><option>高雄</option></select>
+      <select class="filter-select" id="log-type" onchange="renderLog()" oninput="renderLog()" style="flex:1;min-width:80px"><option value="">全部類型</option><option value="進貨">進貨</option><option value="出貨">出貨</option></select>
+      <select class="filter-select" id="log-subtype" onchange="renderLog()" oninput="renderLog()" style="flex:1;min-width:80px"><option value="">全部出貨類型</option><option value="出售">💰 出售</option><option value="店用">🏪 店用</option><option value="贈送">🎁 贈送</option></select>
     </div>
     <div class="log-filters" style="gap:8px;margin-top:0;margin-bottom:12px;align-items:center">
       <span style="font-size:12px;color:var(--muted);white-space:nowrap">時間區間</span>
-      <input type="date" class="filter-select" id="log-date-from" onchange="renderLog()" style="flex:1">
+      <input type="date" class="filter-select" id="log-date-from" onchange="renderLog()" oninput="renderLog()" style="flex:1">
       <span style="color:var(--muted)">～</span>
-      <input type="date" class="filter-select" id="log-date-to" onchange="renderLog()" style="flex:1">
-      <button class="btn-sm btn-in" style="white-space:nowrap;padding:7px 10px" onclick="clearDateFilter()">清除</button>
+      <input type="date" class="filter-select" id="log-date-to" onchange="renderLog()" oninput="renderLog()" style="flex:1">
+      <button class="btn-sm btn-in" style="white-space:nowrap;padding:7px 10px" onclick="clearDateFilter()">重置日期</button>
     </div>
     <div id="log-list"><div class="loading"><div class="spinner"></div>讀取紀錄...</div></div>
   </div>
@@ -489,13 +489,21 @@ function renderLog(){
           <div style="text-align:right;flex-shrink:0;margin-left:12px"><div class="log-qty-badge ${isIn?'log-in':'log-out'}">${isIn?'+':'-'}${totalQty}</div><div style="font-size:10px;color:var(--muted)">件</div></div>
         </div>
         <div class="log-items-list">${itemRows}</div>
+        <div style="margin-top:10px;text-align:right">
+          <button class="btn-sm btn-out" style="padding:5px 12px;flex:none" onclick="deleteLog('${l.id}','批次${isIn?'進貨':'出貨'} ${l.items.length} 項')">🗑️ 刪除此紀錄</button>
+        </div>
       </div>`;
     }
-    return `<div class="log-item">
-      <div><div class="log-product">${l.product}</div><div class="log-meta">${l.store}${subtypeStr} · ${timeStr}${l.note?' · '+l.note:''}</div></div>
-      <div style="text-align:right;flex-shrink:0;margin-left:12px">
-        <div class="log-qty-badge ${isIn?'log-in':'log-out'}">${isIn?'+':'-'}${l.qty}</div>
-        <div style="font-size:11px;color:${isIn?'var(--success)':'var(--danger)'}">${isIn?'▲ 進貨':'▼ 出貨'}</div>
+    return `<div class="log-item" style="align-items:flex-start;flex-direction:column;gap:8px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;width:100%">
+        <div><div class="log-product">${l.product}</div><div class="log-meta">${l.store}${subtypeStr} · ${timeStr}${l.note?' · '+l.note:''}</div></div>
+        <div style="text-align:right;flex-shrink:0;margin-left:12px">
+          <div class="log-qty-badge ${isIn?'log-in':'log-out'}">${isIn?'+':'-'}${l.qty}</div>
+          <div style="font-size:11px;color:${isIn?'var(--success)':'var(--danger)'}">${isIn?'▲ 進貨':'▼ 出貨'}</div>
+        </div>
+      </div>
+      <div style="width:100%;text-align:right">
+        <button class="btn-sm btn-out" style="padding:5px 12px;flex:none" onclick="deleteLog('${l.id}','${l.product}')">🗑️ 刪除</button>
       </div>
     </div>`;
   }).join('');
@@ -505,6 +513,16 @@ window.clearDateFilter=function(){
   document.getElementById('log-date-from').value='';
   document.getElementById('log-date-to').value='';
   renderLog();
+};
+
+window.deleteLog=async function(lid, desc){
+  if(!confirm(`確定要刪除這筆紀錄嗎？\n\n「${desc}」\n\n⚠️ 注意：刪除紀錄不會還原庫存數量，僅刪除這筆歷史記錄。`)) return;
+  try{
+    await deleteDoc(doc(db,'logs',lid));
+    showToast('🗑️ 紀錄已刪除');
+  }catch(e){
+    console.error(e);showToast('❌ 刪除失敗，請重試');
+  }
 };
 
 function renderAlert(){
@@ -739,6 +757,17 @@ window.showToast=function(msg){
 async function start(){
   try{listenProducts();listenLogs();}
   catch(e){console.error(e);setSyncStatus(false);showToast('❌ 無法連線 Firebase');}
+
+  // 確保所有篩選器即時反應（手機相容）
+  const filterMap = {
+    'cat-filter': renderCards,
+    'log-store': renderLog, 'log-type': renderLog,
+    'log-subtype': renderLog, 'log-date-from': renderLog, 'log-date-to': renderLog,
+  };
+  Object.entries(filterMap).forEach(([id, fn]) => {
+    const el = document.getElementById(id);
+    if(el){ el.addEventListener('change', fn); el.addEventListener('input', fn); }
+  });
 }
 start();
 </script>
