@@ -38,6 +38,15 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:0
 .store-tabs::-webkit-scrollbar{display:none}
 .store-tab{padding:5px 14px;border-radius:20px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;font-size:12px;white-space:nowrap;font-family:'Noto Sans TC',sans-serif;transition:all .15s;flex-shrink:0}
 .store-tab.active{background:var(--accent);color:#0e0d0b;border-color:var(--accent);font-weight:700}
+.subcat-tabs{display:flex;gap:5px;margin-bottom:12px;overflow-x:auto;padding-bottom:4px;-webkit-overflow-scrolling:touch}
+.subcat-tabs::-webkit-scrollbar{display:none}
+.subcat-tab{padding:4px 12px;border-radius:16px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;font-size:11px;white-space:nowrap;font-family:'Noto Sans TC',sans-serif;transition:all .15s;flex-shrink:0}
+.subcat-tab:hover{color:var(--text);border-color:var(--muted)}
+.subcat-tab.active{background:var(--surface2);color:var(--accent);border-color:var(--accent);font-weight:700}
+.cat-group-header{display:flex;align-items:center;gap:8px;padding:10px 0 6px;margin-top:6px}
+.cat-group-title{font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1px;color:var(--muted)}
+.cat-group-line{flex:1;height:1px;background:var(--border)}
+.subcat-label{font-size:10px;color:var(--muted);background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:1px 7px;margin-left:4px}
 
 .stats-row{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px}
 .stat-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px}
@@ -205,11 +214,12 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:0
     </div>
     <div class="inv-filters">
       <input class="search-input" id="search-input" placeholder="搜尋商品名稱..." oninput="renderCards()" type="search" autocomplete="off">
-      <select class="filter-select" id="cat-filter" onchange="renderCards()" oninput="renderCards()">
-        <option value="">全部</option><option value="蠟品">蠟品</option>
-        <option value="保養品">保養品</option><option value="耗材">耗材</option>
+      <select class="filter-select" id="cat-filter" onchange="onCatChange()" oninput="onCatChange()">
+        <option value="">全部分類</option><option value="蠟品">🟠 蠟品</option>
+        <option value="保養品">🟢 保養品</option><option value="耗材">🟣 耗材</option>
       </select>
     </div>
+    <div class="subcat-tabs" id="subcat-tabs" style="display:none"></div>
     <div id="inv-list"><div class="loading"><div class="spinner"></div>讀取庫存資料...</div></div>
   </div>
 
@@ -293,7 +303,8 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:0
     <div class="modal-handle"></div>
     <div class="modal-title">新增商品</div>
     <div class="form-group"><label class="form-label">商品名稱</label><input class="form-input" type="text" id="ap-name" placeholder="例：玫瑰蠟"></div>
-    <div class="form-group"><label class="form-label">分類</label><select class="form-select" id="ap-cat"><option value="蠟品">蠟品</option><option value="保養品">保養品</option><option value="耗材">耗材</option></select></div>
+    <div class="form-group"><label class="form-label">大分類</label><select class="form-select" id="ap-cat" onchange="updateApSubcat()" oninput="updateApSubcat()"><option value="蠟品">🟠 蠟品</option><option value="保養品">🟢 保養品</option><option value="耗材">🟣 耗材</option></select></div>
+    <div class="form-group"><label class="form-label">子分類</label><select class="form-select" id="ap-subcat"></select></div>
     <div class="form-group"><label class="form-label">安全庫存量</label><input class="form-input" type="number" id="ap-safe" value="10" min="1" inputmode="numeric"></div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeAddProduct()">取消</button>
@@ -357,7 +368,8 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:0
     <div class="modal-title">✏️ 編輯商品</div>
     <input type="hidden" id="ep-id">
     <div class="form-group"><label class="form-label">商品名稱</label><input class="form-input" type="text" id="ep-name"></div>
-    <div class="form-group"><label class="form-label">分類</label><select class="form-select" id="ep-cat"><option value="蠟品">蠟品</option><option value="保養品">保養品</option><option value="耗材">耗材</option></select></div>
+    <div class="form-group"><label class="form-label">大分類</label><select class="form-select" id="ep-cat" onchange="updateEpSubcat()" oninput="updateEpSubcat()"><option value="蠟品">🟠 蠟品</option><option value="保養品">🟢 保養品</option><option value="耗材">🟣 耗材</option></select></div>
+    <div class="form-group"><label class="form-label">子分類</label><select class="form-select" id="ep-subcat"></select></div>
     <div class="form-group"><label class="form-label">安全庫存量</label><input class="form-input" type="number" id="ep-safe" min="0" inputmode="numeric"></div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeEditProduct()">取消</button>
@@ -386,13 +398,25 @@ const db = getFirestore(app);
 
 const STORES = ['台北','新竹','台中','高雄'];
 const CAT_CLASS = {'蠟品':'tag-wax','保養品':'tag-care','耗材':'tag-supply'};
+const SUBCATS = {
+  '蠟品':    ['全部','硬蠟','軟蠟','季節限定'],
+  '保養品':  ['全部','乳液','精華油','去角質','調理系列','精靈系列'],
+  '耗材':    ['全部','義朵耗材','店用耗材'],
+};
 let products=[], logs=[], currentStore='全部', currentModal='in', currentPage='inventory';
 let batchType='in', batchQtys={};
+let currentSubcat='全部';
 
 function listenProducts(){
   onSnapshot(collection(db,'products'),snap=>{
     products=snap.docs.map(d=>({id:d.id,...d.data()}));
-    products.sort((a,b)=>{const o=['蠟品','保養品','耗材'];return o.indexOf(a.cat)-o.indexOf(b.cat)||a.name.localeCompare(b.name,'zh-TW');});
+    const catOrder=['蠟品','保養品','耗材'];
+    products.sort((a,b)=>{
+      const co=catOrder.indexOf(a.cat)-catOrder.indexOf(b.cat);if(co!==0)return co;
+      const sa=SUBCATS[a.cat]||[];const sb=SUBCATS[b.cat]||[];
+      const so=(sa.indexOf(a.subcat||'')||99)-(sb.indexOf(b.subcat||'')||99);if(so!==0)return so;
+      return a.name.localeCompare(b.name,'zh-TW');
+    });
     renderCards();renderAlert();renderManage();updateStats();populateProductSelect();
     document.getElementById('last-update').textContent='即時同步中 · '+new Date().toLocaleTimeString('zh-TW',{hour12:false});
     setSyncStatus(true);
@@ -427,30 +451,98 @@ function updateStats(){
   badge.style.display=alertN>0?'block':'none';badge.textContent=alertN;
 }
 
+// ── SUBCAT HELPERS ──
+window.onCatChange=function(){
+  currentSubcat='全部';
+  renderSubcatTabs();
+  renderCards();
+};
+
+function renderSubcatTabs(){
+  const cat=document.getElementById('cat-filter')?.value||'';
+  const wrap=document.getElementById('subcat-tabs');
+  if(!cat||!SUBCATS[cat]){wrap.style.display='none';return;}
+  wrap.style.display='flex';
+  wrap.innerHTML=SUBCATS[cat].map(s=>
+    `<button class="subcat-tab ${s===currentSubcat?'active':''}" onclick="filterSubcat('${s}',this)">${s}</button>`
+  ).join('');
+}
+
+window.filterSubcat=function(sub,el){
+  currentSubcat=sub;
+  document.querySelectorAll('.subcat-tab').forEach(t=>t.classList.remove('active'));
+  el.classList.add('active');
+  renderCards();
+};
+
 function renderCards(){
   updateStats();
   const search=(document.getElementById('search-input')?.value||'').toLowerCase();
   const cat=document.getElementById('cat-filter')?.value||'';
   const stores=currentStore==='全部'?STORES:[currentStore];
-  const filtered=products.filter(p=>(!cat||p.cat===cat)&&(!search||p.name.toLowerCase().includes(search)));
+
+  let filtered=products.filter(p=>{
+    if(cat && p.cat!==cat) return false;
+    if(currentSubcat && currentSubcat!=='全部' && p.subcat!==currentSubcat) return false;
+    if(search && !p.name.toLowerCase().includes(search) && !(p.subcat||'').toLowerCase().includes(search)) return false;
+    return true;
+  });
+
   if(!filtered.length){document.getElementById('inv-list').innerHTML='<div class="empty">沒有符合的商品</div>';return;}
-  document.getElementById('inv-list').innerHTML=filtered.map(p=>{
-    const inv=p.inventory||{};
-    const hasLow=stores.some(s=>(inv[s]||0)<=(p.safe||0)*.5);
-    const hasWarn=!hasLow&&stores.some(s=>(inv[s]||0)<=(p.safe||0));
-    const storeQtys=stores.map(s=>{
-      const q=inv[s]||0;const qCls=q<=(p.safe||0)*.5?'qty-low':q<=(p.safe||0)?'qty-warn':'qty-ok';
-      return `<div class="store-qty"><div class="store-name">${s}</div><div class="qty-val ${qCls}">${q}</div><div class="qty-safe">安全: ${p.safe||0}</div></div>`;
-    }).join('');
-    return `<div class="inv-card ${hasLow?'low':hasWarn?'warn':''}">
-      <div class="inv-card-header"><div class="inv-name">${p.name}</div><span class="tag ${CAT_CLASS[p.cat]||''}">${p.cat}</span></div>
-      <div class="store-qty-grid">${storeQtys}</div>
-      <div class="card-actions">
-        <button class="btn-sm btn-in" onclick="quickTx('in','${p.id}')">＋ 進貨</button>
-        <button class="btn-sm btn-out" onclick="quickTx('out','${p.id}')">－ 出貨</button>
-      </div>
-    </div>`;
+
+  // Group by cat then subcat when showing all
+  let html='';
+  if(!cat){
+    const catOrder=['蠟品','保養品','耗材'];
+    catOrder.forEach(c=>{
+      const catItems=filtered.filter(p=>p.cat===c);
+      if(!catItems.length)return;
+      // group by subcat within cat
+      const subcatMap={};
+      catItems.forEach(p=>{const sc=p.subcat||'其他';if(!subcatMap[sc])subcatMap[sc]=[];subcatMap[sc].push(p);});
+      html+=`<div class="cat-group-header"><span class="tag ${CAT_CLASS[c]||''}">${c}</span><div class="cat-group-line"></div></div>`;
+      Object.entries(subcatMap).forEach(([sc,items])=>{
+        html+=`<div style="margin-bottom:4px"><span style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:6px;padding-left:2px">${sc}</span>`;
+        html+=items.map(p=>buildCard(p,stores)).join('');
+        html+='</div>';
+      });
+    });
+  } else if(currentSubcat==='全部'){
+    // group by subcat
+    const subcatMap={};
+    filtered.forEach(p=>{const sc=p.subcat||'其他';if(!subcatMap[sc])subcatMap[sc]=[];subcatMap[sc].push(p);});
+    Object.entries(subcatMap).forEach(([sc,items])=>{
+      html+=`<div style="margin-bottom:4px"><div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;margin-top:8px"><span style="font-size:12px;font-weight:700;color:var(--accent2)">${sc}</span><div style="flex:1;height:1px;background:var(--border)"></div></div>`;
+      html+=items.map(p=>buildCard(p,stores)).join('');
+      html+='</div>';
+    });
+  } else {
+    html=filtered.map(p=>buildCard(p,stores)).join('');
+  }
+
+  document.getElementById('inv-list').innerHTML=html||'<div class="empty">沒有符合的商品</div>';
+}
+
+function buildCard(p,stores){
+  const inv=p.inventory||{};
+  const hasLow=stores.some(s=>(inv[s]||0)<=(p.safe||0)*.5);
+  const hasWarn=!hasLow&&stores.some(s=>(inv[s]||0)<=(p.safe||0));
+  const storeQtys=stores.map(s=>{
+    const q=inv[s]||0;const qCls=q<=(p.safe||0)*.5?'qty-low':q<=(p.safe||0)?'qty-warn':'qty-ok';
+    return `<div class="store-qty"><div class="store-name">${s}</div><div class="qty-val ${qCls}">${q}</div><div class="qty-safe">安全: ${p.safe||0}</div></div>`;
   }).join('');
+  const subcatBadge=p.subcat?`<span class="subcat-label">${p.subcat}</span>`:'';
+  return `<div class="inv-card ${hasLow?'low':hasWarn?'warn':''}">
+    <div class="inv-card-header">
+      <div class="inv-name">${p.name}${subcatBadge}</div>
+      <span class="tag ${CAT_CLASS[p.cat]||''}">${p.cat}</span>
+    </div>
+    <div class="store-qty-grid">${storeQtys}</div>
+    <div class="card-actions">
+      <button class="btn-sm btn-in" onclick="quickTx('in','${p.id}')">＋ 進貨</button>
+      <button class="btn-sm btn-out" onclick="quickTx('out','${p.id}')">－ 出貨</button>
+    </div>
+  </div>`;
 }
 
 function renderLog(){
@@ -542,15 +634,32 @@ function renderAlert(){
 
 function renderManage(){
   if(!products.length){document.getElementById('manage-list').innerHTML='<div class="empty">尚無商品，請點上方「＋ 新增商品」</div>';return;}
-  document.getElementById('manage-list').innerHTML=products.map(p=>`
-    <div class="inv-card">
-      <div class="inv-card-header"><div class="inv-name">${p.name}</div><span class="tag ${CAT_CLASS[p.cat]||''}">${p.cat}</span></div>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:10px">安全庫存：${p.safe||0} 件</div>
-      <div class="card-actions">
-        <button class="btn-sm" style="background:#1a1328;color:#8b78d8;border:1px solid #2a2040;flex:2" onclick="openEditProduct('${p.id}')">✏️ 編輯</button>
-        <button class="btn-sm btn-out" style="flex:1" onclick="deleteProduct('${p.id}','${p.name}')">🗑️ 刪除</button>
-      </div>
-    </div>`).join('');
+  const catOrder=['蠟品','保養品','耗材'];
+  let html='';
+  catOrder.forEach(c=>{
+    const catItems=products.filter(p=>p.cat===c);
+    if(!catItems.length)return;
+    html+=`<div class="cat-group-header"><span class="tag ${CAT_CLASS[c]||''}">${c}</span><div class="cat-group-line"></div></div>`;
+    const subcatMap={};
+    catItems.forEach(p=>{const sc=p.subcat||'其他';if(!subcatMap[sc])subcatMap[sc]=[];subcatMap[sc].push(p);});
+    Object.entries(subcatMap).forEach(([sc,items])=>{
+      html+=`<div style="font-size:11px;font-weight:700;color:var(--accent2);margin:8px 0 6px;padding-left:2px">${sc}</div>`;
+      items.forEach(p=>{
+        html+=`<div class="inv-card" style="margin-bottom:8px">
+          <div class="inv-card-header">
+            <div class="inv-name">${p.name}</div>
+            <span class="tag ${CAT_CLASS[p.cat]||''}">${p.subcat||p.cat}</span>
+          </div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:10px">安全庫存：${p.safe||0} 件</div>
+          <div class="card-actions">
+            <button class="btn-sm" style="background:#1a1328;color:#8b78d8;border:1px solid #2a2040;flex:2" onclick="openEditProduct('${p.id}')">✏️ 編輯</button>
+            <button class="btn-sm btn-out" style="flex:1" onclick="deleteProduct('${p.id}','${p.name}')">🗑️ 刪除</button>
+          </div>
+        </div>`;
+      });
+    });
+  });
+  document.getElementById('manage-list').innerHTML=html;
 }
 
 window.deleteProduct=async function(pid,name){
@@ -566,6 +675,7 @@ window.openEditProduct=function(pid){
   document.getElementById('ep-id').value=pid;
   document.getElementById('ep-name').value=p.name;
   document.getElementById('ep-cat').value=p.cat;
+  updateEpSubcat(p.subcat||'');
   document.getElementById('ep-safe').value=p.safe||0;
   document.getElementById('edit-product-overlay').classList.add('open');
 };
@@ -575,10 +685,11 @@ window.submitEditProduct=async function(){
   const pid=document.getElementById('ep-id').value;
   const name=document.getElementById('ep-name').value.trim();
   const cat=document.getElementById('ep-cat').value;
+  const subcat=document.getElementById('ep-subcat').value;
   const safe=parseInt(document.getElementById('ep-safe').value)||0;
   if(!name){showToast('⚠️ 請輸入商品名稱');return;}
   try{
-    await updateDoc(doc(db,'products',pid),{name,cat,safe});
+    await updateDoc(doc(db,'products',pid),{name,cat,subcat,safe});
     closeEditProduct();showToast(`✅ 已更新：${name}`);
   }catch(e){console.error(e);showToast('❌ 更新失敗，請重試');}
 };
@@ -624,16 +735,35 @@ function populateProductSelect(){
 }
 
 // ── ADD PRODUCT ──
-window.openAddProduct=function(){document.getElementById('ap-name').value='';document.getElementById('ap-safe').value=10;document.getElementById('add-product-overlay').classList.add('open');};
+// subcat select helpers
+window.updateApSubcat=function(){
+  const cat=document.getElementById('ap-cat').value;
+  const subs=(SUBCATS[cat]||[]).filter(s=>s!=='全部');
+  document.getElementById('ap-subcat').innerHTML=subs.map(s=>`<option value="${s}">${s}</option>`).join('');
+};
+window.updateEpSubcat=function(selected){
+  const cat=document.getElementById('ep-cat').value;
+  const subs=(SUBCATS[cat]||[]).filter(s=>s!=='全部');
+  document.getElementById('ep-subcat').innerHTML=subs.map(s=>`<option value="${s}" ${s===selected?'selected':''}>${s}</option>`).join('');
+};
+
+window.openAddProduct=function(){
+  document.getElementById('ap-name').value='';
+  document.getElementById('ap-safe').value=10;
+  document.getElementById('ap-cat').value='蠟品';
+  updateApSubcat();
+  document.getElementById('add-product-overlay').classList.add('open');
+};
 window.closeAddProduct=function(){document.getElementById('add-product-overlay').classList.remove('open');};
 window.closeAddOutside=function(e){if(e.target===document.getElementById('add-product-overlay'))closeAddProduct();};
 window.submitAddProduct=async function(){
   const name=document.getElementById('ap-name').value.trim();
   const cat=document.getElementById('ap-cat').value;
+  const subcat=document.getElementById('ap-subcat').value;
   const safe=parseInt(document.getElementById('ap-safe').value)||10;
   if(!name){showToast('⚠️ 請輸入商品名稱');return;}
   const inv={};STORES.forEach(s=>inv[s]=0);
-  await addDoc(collection(db,'products'),{name,cat,safe,inventory:inv,createdAt:serverTimestamp()});
+  await addDoc(collection(db,'products'),{name,cat,subcat,safe,inventory:inv,createdAt:serverTimestamp()});
   closeAddProduct();showToast(`✅ 已新增商品：${name}`);
 };
 
