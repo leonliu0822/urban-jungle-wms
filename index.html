@@ -530,7 +530,7 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:0
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getFirestore, collection, doc, onSnapshot, addDoc, getDocs, updateDoc, deleteDoc, serverTimestamp, query, orderBy, limit, increment } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { getFirestore, collection, doc, onSnapshot, addDoc, getDocs, getDoc, updateDoc, deleteDoc, serverTimestamp, query, orderBy, limit, increment } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyAu4VnhoxlgZZsCpnhD184PAF9wlaOCEuw",
@@ -1139,7 +1139,14 @@ window.submitTransaction=async function(){
   const btn=document.getElementById('modal-confirm');btn.textContent='處理中...';btn.disabled=true;
   try{
     const delta=currentModal==='in'?qty:-qty;
-    await updateDoc(doc(db,'products',pid),{[`inventory.${store}`]:increment(delta)});
+    const pRef=doc(db,'products',pid);
+    await updateDoc(pRef,{[`inventory.${store}`]:increment(delta)});
+    // 強制重新讀取最新庫存，確保畫面即時更新
+    const freshDoc=await getDoc(pRef);
+    if(freshDoc.exists()){
+      const idx=products.findIndex(x=>x.id===pid);
+      if(idx>=0){products[idx]={id:pid,...freshDoc.data()};renderCards();updateStats();}
+    }
     const subtype = currentModal==='out' ? document.getElementById('m-subtype').value : '';
     const status = currentModal==='out' ? document.getElementById('m-status').value : '';
     const operator=currentUser?.displayName||currentUser?.username||'—';
@@ -1271,9 +1278,16 @@ window.submitBatch=async function(){
     const logItems=[];
     for(const [pid,qty] of entries){
       const p=products.find(x=>x.id===pid);if(!p)continue;
-      await updateDoc(doc(db,'products',pid),{[`inventory.${store}`]:increment(isIn?qty:-qty)});
+      const pRef=doc(db,'products',pid);
+      await updateDoc(pRef,{[`inventory.${store}`]:increment(isIn?qty:-qty)});
       logItems.push({productId:pid,name:p.name,qty});
     }
+    // 強制重新讀取所有被更新的商品，確保庫存即時反映
+    for(const [pid] of entries){
+      const freshDoc=await getDoc(doc(db,'products',pid));
+      if(freshDoc.exists()){const idx=products.findIndex(x=>x.id===pid);if(idx>=0)products[idx]={id:pid,...freshDoc.data()};}
+    }
+    renderCards();updateStats();
     const totalQty=entries.reduce((a,[,q])=>a+q,0);
     const operator=currentUser?.displayName||currentUser?.username||'—';
     await addDoc(collection(db,'logs'),{
