@@ -1022,10 +1022,49 @@ window.exportExcel=function(){
 };
 
 window.deleteLog=async function(lid, desc){
-  if(!confirm(`確定要刪除這筆紀錄嗎？\n\n「${desc}」\n\n⚠️ 注意：刪除紀錄不會還原庫存數量，僅刪除這筆歷史記錄。`)) return;
+  // 先找到這筆紀錄的完整資料
+  const logEntry=logs.find(l=>l.id===lid);
+  if(!logEntry){showToast('❌ 找不到此紀錄');return;}
+
+  const isIn=logEntry.type==='進貨';
+  const actionDesc=isIn?'刪除後庫存將扣回對應數量':'刪除後庫存將補回對應數量';
+
+  if(!confirm(`確定要刪除這筆紀錄嗎？\n\n「${desc}」\n\n⚠️ ${actionDesc}，此操作無法復原。`)) return;
+
   try{
+    // ── 反向校正庫存 ──
+    const store=logEntry.store;
+    const reversal=isIn?-1:1; // 進貨刪除→扣回；出貨刪除→補回
+
+    if(logEntry.isBatch && logEntry.items){
+      // 批次：每個品項分別處理
+      for(const item of logEntry.items){
+        const p=products.find(x=>x.id===item.productId);
+        if(!p)continue;
+        const pRef=doc(db,'products',item.productId);
+        await updateDoc(pRef,{[`inventory.${store}`]:increment(reversal*item.qty)});
+        // 立即更新本地資料
+        const fresh=await getDoc(pRef);
+        if(fresh.exists()){const idx=products.findIndex(x=>x.id===item.productId);if(idx>=0)products[idx]={id:item.productId,...fresh.data()};}
+      }
+    } else {
+      // 單品
+      if(logEntry.productId){
+        const pRef=doc(db,'products',logEntry.productId);
+        await updateDoc(pRef,{[`inventory.${store}`]:increment(reversal*logEntry.qty)});
+        const fresh=await getDoc(pRef);
+        if(fresh.exists()){const idx=products.findIndex(x=>x.id===logEntry.productId);if(idx>=0)products[idx]={id:logEntry.productId,...fresh.data()};}
+      }
+    }
+
+    // 刪除紀錄
     await deleteDoc(doc(db,'logs',lid));
-    showToast('🗑️ 紀錄已刪除');
+
+    // 更新畫面
+    renderCards();updateStats();renderAlert();
+    const totalQty=logEntry.isBatch?(logEntry.items||[]).reduce((a,i)=>a+i.qty,0):logEntry.qty;
+    showToast(`🗑️ 已刪除並${isIn?'扣回':'補回'}庫存 ${totalQty} 件`);
+
   }catch(e){
     console.error(e);showToast('❌ 刪除失敗，請重試');
   }
