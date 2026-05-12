@@ -163,6 +163,9 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:0
 .stepper-btn:active{background:var(--accent);color:#0e0d0b;border-color:var(--accent)}
 .stepper-val{width:40px;text-align:center;font-family:'Bebas Neue',sans-serif;font-size:22px;color:var(--muted)}
 .stepper-val.has-qty{color:var(--accent2)}
+.stepper-input{width:52px;text-align:center;font-family:'Bebas Neue',sans-serif;font-size:22px;color:var(--accent2);background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:2px 4px;outline:none;-webkit-appearance:none;-moz-appearance:textfield}
+.stepper-input:focus{border-color:var(--accent)}
+.stepper-input::placeholder{color:var(--muted);font-size:16px}
 
 .batch-footer{background:var(--surface);border-top:1px solid var(--border);padding:12px 16px calc(12px + env(safe-area-inset-bottom));flex-shrink:0}
 .batch-summary{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;font-size:13px}
@@ -917,7 +920,6 @@ window.clearDateFilter=function(){
 };
 
 window.exportExcel=function(){
-  // 取得目前篩選條件
   const sf=document.getElementById('log-store')?.value||'';
   const tf=document.getElementById('log-type')?.value||'';
   const stf=document.getElementById('log-subtype')?.value||'';
@@ -928,6 +930,8 @@ window.exportExcel=function(){
     if(sf && l.store!==sf)return false;
     if(tf && l.type!==tf)return false;
     if(stf && l.subtype!==stf)return false;
+    if(currentStatusFilter==='pending'){if(l.type!=='出貨'||l.status==='已處理')return false;}
+    if(currentStatusFilter==='done'){if(l.type!=='出貨'||l.status!=='已處理')return false;}
     if(dateFrom||dateTo){
       const t=l.time?.toDate?l.time.toDate():new Date(l.time||0);
       if(dateFrom && t<new Date(dateFrom))return false;
@@ -938,87 +942,115 @@ window.exportExcel=function(){
 
   if(!filtered.length){showToast('⚠️ 目前篩選結果為空，無法匯出');return;}
 
-  const subtypeIcon={'出售':'出售','店用':'店用','贈送':'贈送'};
-
-  // 展開批次訂單為多列
-  const rows=[];
+  // 展開所有紀錄成單行
+  const allRows=[];
   filtered.forEach(l=>{
     const t=l.time?.toDate?l.time.toDate():new Date(l.time||Date.now());
-    const timeStr=t.toLocaleString('zh-TW',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false});
+    const dateStr=t.toLocaleDateString('zh-TW',{year:'numeric',month:'2-digit',day:'2-digit'});
+    const timeStr=t.toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit',hour12:false});
     const isIn=l.type==='進貨';
     const subtype=l.subtype||'—';
+    const status=l.status||'待處理';
+    const operator=l.operator||'—';
+    const note=l.note||'';
     if(l.isBatch&&l.items){
       l.items.forEach(it=>{
-        rows.push({
-          '日期時間': timeStr,
-          '分店': l.store,
-          '類型': l.type,
-          '出貨類型': isIn?'—':subtype,
-          '出貨狀態': isIn?'—':(l.status||'待處理'),
-          '商品名稱': it.name,
-          '數量': isIn?it.qty:-it.qty,
-          '操作人員': l.operator||'—',
-          '備註': l.note||'',
-          '批次': '是',
-        });
+        allRows.push({date:dateStr,time:timeStr,isIn,store:l.store,productName:it.name,qty:it.qty,subtype,status,operator,note,isBatch:true});
       });
     } else {
-      rows.push({
-        '日期時間': timeStr,
-        '分店': l.store,
-        '類型': l.type,
-        '出貨類型': isIn?'—':subtype,
-        '出貨狀態': isIn?'—':(l.status||'待處理'),
-        '商品名稱': l.product,
-        '數量': isIn?l.qty:-l.qty,
-        '操作人員': l.operator||'—',
-        '備註': l.note||'',
-        '批次': '否',
-      });
+      allRows.push({date:dateStr,time:timeStr,isIn,store:l.store,productName:l.product,qty:l.qty,subtype,status,operator,note,isBatch:false});
     }
   });
 
-  // 建立 Summary sheet（各商品合計）
-  const summary={};
-  rows.forEach(r=>{
-    const key=`${r['商品名稱']}___${r['分店']}`;
-    if(!summary[key])summary[key]={商品:r['商品名稱'],分店:r['分店'],進貨:0,出售:0,店用:0,贈送:0};
-    if(r['類型']==='進貨')summary[key].進貨+=r['數量'];
-    else{
-      const st=r['出貨類型'];
-      if(st==='出售')summary[key].出售+=Math.abs(r['數量']);
-      else if(st==='店用')summary[key].店用+=Math.abs(r['數量']);
-      else if(st==='贈送')summary[key].贈送+=Math.abs(r['數量']);
-    }
+  const wb=XLSX.utils.book_new();
+  const colWidths=(arr)=>arr.map(w=>({wch:w}));
+
+  // ── Sheet 1：庫存總表（各商品 × 各分店 目前庫存）──
+  const storeList=sf?[sf]:STORES;
+  const inv1=[];
+  products.forEach(p=>{
+    const inv=p.inventory||{};
+    const row={'商品名稱':p.name,'大分類':p.cat,'子分類':p.subcat||'—','安全庫存':p.safe||0};
+    let total=0;
+    storeList.forEach(s=>{row[s]=inv[s]||0;total+=inv[s]||0;});
+    row['合計']=total;
+    const isLow=storeList.some(s=>(inv[s]||0)<=(p.safe||0)*.5);
+    const isWarn=!isLow&&storeList.some(s=>(inv[s]||0)<=(p.safe||0));
+    row['狀態']=isLow?'🔴 緊急補貨':isWarn?'🟡 庫存偏低':'🟢 正常';
+    inv1.push(row);
   });
-  const summaryRows=Object.values(summary).map(s=>({
-    '商品名稱':s.商品,'分店':s.分店,
-    '進貨合計':s.進貨,'出售合計':s.出售,'店用合計':s.店用,'贈送合計':s.贈送,
-    '出貨總計':s.出售+s.店用+s.贈送,
+  const ws1=XLSX.utils.json_to_sheet(inv1);
+  ws1['!cols']=colWidths([20,8,10,10,...storeList.map(()=>8),8,10]);
+  XLSX.utils.book_append_sheet(wb,ws1,'庫存總表');
+
+  // ── Sheet 2：出貨總表 ──
+  const outRows=allRows.filter(r=>!r.isIn);
+
+  // 明細
+  const outDetail=outRows.map(r=>({
+    '日期':r.date,'時間':r.time,'分店':r.store,
+    '商品名稱':r.productName,'數量':r.qty,
+    '出貨類型':r.subtype,'出貨狀態':r.status,
+    '操作人員':r.operator,'備註':r.note,'批次':r.isBatch?'是':'否',
   }));
 
-  // 建立 Excel
-  const wb=XLSX.utils.book_new();
+  // 出貨商品統整（商品 × 分店 × 類型加總）
+  const outSum={};
+  outRows.forEach(r=>{
+    const key=`${r.productName}|||${r.store}`;
+    if(!outSum[key])outSum[key]={商品名稱:r.productName,分店:r.store,出售:0,店用:0,贈送:0,合計:0};
+    const s=r.subtype;
+    if(s==='出售')outSum[key].出售+=r.qty;
+    else if(s==='店用')outSum[key].店用+=r.qty;
+    else if(s==='贈送')outSum[key].贈送+=r.qty;
+    outSum[key].合計+=r.qty;
+  });
+  const outSumRows=Object.values(outSum).sort((a,b)=>a.商品名稱.localeCompare(b.商品名稱,'zh-TW'));
 
-  // Sheet1: 明細
-  const ws1=XLSX.utils.json_to_sheet(rows);
-  ws1['!cols']=[{wch:18},{wch:8},{wch:8},{wch:10},{wch:20},{wch:8},{wch:16},{wch:6}];
-  XLSX.utils.book_append_sheet(wb,ws1,'進出貨明細');
+  // 合併：先統整，再明細（用空行隔開）
+  const ws2data=[
+    {'商品名稱':'【出貨統整】','分店':'','出售':'','店用':'','贈送':'','合計':''},
+    ...outSumRows,
+    {},
+    {'商品名稱':'【出貨明細】','分店':'','出售':'日期','店用':'時間','贈送':'出貨類型','合計':''},
+    ...outDetail.map(r=>({'商品名稱':r['商品名稱'],'分店':r['分店'],'出售':r['日期'],'店用':r['時間'],'贈送':r['出貨類型'],'合計':r['數量'],'操作人員':r['操作人員'],'備註':r['備註']})),
+  ];
+  const ws2=XLSX.utils.json_to_sheet(outDetail.length?outDetail:[{'提示':'此期間無出貨紀錄'}]);
+  ws2['!cols']=colWidths([10,8,8,20,6,10,8,10,16,6]);
+  // 加一個出貨統整 tab
+  const ws2b=XLSX.utils.json_to_sheet(outSumRows.length?outSumRows:[{'提示':'此期間無出貨'}]);
+  ws2b['!cols']=colWidths([20,8,10,10,10,10]);
+  XLSX.utils.book_append_sheet(wb,ws2b,'出貨統整');
+  XLSX.utils.book_append_sheet(wb,ws2,'出貨明細');
 
-  // Sheet2: 統整
-  const ws2=XLSX.utils.json_to_sheet(summaryRows);
-  ws2['!cols']=[{wch:20},{wch:8},{wch:10},{wch:10},{wch:10},{wch:10},{wch:10}];
-  XLSX.utils.book_append_sheet(wb,ws2,'商品統整');
+  // ── Sheet 3：進貨總表 ──
+  const inRows=allRows.filter(r=>r.isIn);
+  const inDetail=inRows.map(r=>({
+    '日期':r.date,'時間':r.time,'分店':r.store,
+    '商品名稱':r.productName,'數量':r.qty,
+    '操作人員':r.operator,'備註':r.note,'批次':r.isBatch?'是':'否',
+  }));
+  const inSum={};
+  inRows.forEach(r=>{
+    const key=`${r.productName}|||${r.store}`;
+    if(!inSum[key])inSum[key]={商品名稱:r.productName,分店:r.store,進貨合計:0};
+    inSum[key].進貨合計+=r.qty;
+  });
+  const inSumRows=Object.values(inSum).sort((a,b)=>a.商品名稱.localeCompare(b.商品名稱,'zh-TW'));
+  const ws3b=XLSX.utils.json_to_sheet(inSumRows.length?inSumRows:[{'提示':'此期間無進貨'}]);
+  ws3b['!cols']=colWidths([20,8,12]);
+  const ws3=XLSX.utils.json_to_sheet(inDetail.length?inDetail:[{'提示':'此期間無進貨紀錄'}]);
+  ws3['!cols']=colWidths([10,8,8,20,6,10,16,6]);
+  XLSX.utils.book_append_sheet(wb,ws3b,'進貨統整');
+  XLSX.utils.book_append_sheet(wb,ws3,'進貨明細');
 
-  // 檔名含日期區間
+  // 檔名
   const fromStr=dateFrom||'起始';
   const toStr=dateTo||'至今';
   const fname=`UrbanJungle_${sf||'全店'}_${fromStr}_${toStr}.xlsx`;
   XLSX.writeFile(wb,fname);
-  showToast(`✅ 已匯出 ${rows.length} 筆紀錄`);
-
-  // 更新資訊列
-  document.getElementById('export-info').textContent=`共 ${rows.length} 筆 · 上次匯出 ${new Date().toLocaleTimeString('zh-TW',{hour12:false})}`;
+  showToast(`✅ 已匯出 ${allRows.length} 筆，共 5 個分頁`);
+  document.getElementById('export-info').textContent=`${allRows.length} 筆 · ${new Date().toLocaleTimeString('zh-TW',{hour12:false})}`;
 };
 
 window.deleteLog=async function(lid, desc){
@@ -1271,18 +1303,32 @@ window.renderBatchList=function(){
       </div>
       <div class="qty-stepper">
         <button class="stepper-btn" onclick="batchAdj('${p.id}',-1)">−</button>
-        <div class="stepper-val ${q>0?'has-qty':''}" id="bq-${p.id}">${q}</div>
+        <input
+          class="stepper-input"
+          type="number" min="0" inputmode="numeric"
+          id="bq-${p.id}"
+          value="${q||''}"
+          placeholder="0"
+          onchange="batchSetQty('${p.id}',this.value)"
+          oninput="batchSetQty('${p.id}',this.value)"
+        >
         <button class="stepper-btn" onclick="batchAdj('${p.id}',1)">＋</button>
       </div>
     </div>`;
   }).join(''):'<div class="empty">沒有符合品項</div>';
 };
 
+window.batchSetQty=function(pid,val){
+  const next=Math.max(0,parseInt(val)||0);
+  if(next===0)delete batchQtys[pid];else batchQtys[pid]=next;
+  updateBatchSummary();
+};
+
 window.batchAdj=function(pid,delta){
   const cur=batchQtys[pid]||0;const next=Math.max(0,cur+delta);
   if(next===0)delete batchQtys[pid];else batchQtys[pid]=next;
   const el=document.getElementById('bq-'+pid);
-  if(el){el.textContent=next;el.className='stepper-val '+(next>0?'has-qty':'');}
+  if(el){el.value=next||'';}
   updateBatchSummary();
 };
 
