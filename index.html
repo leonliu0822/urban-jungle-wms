@@ -942,31 +942,67 @@ window.exportExcel=function(){
 
   if(!filtered.length){showToast('⚠️ 目前篩選結果為空，無法匯出');return;}
 
-  // 展開所有紀錄成單行
+  const wb=XLSX.utils.book_new();
+  const colWidths=(arr)=>arr.map(w=>({wch:w}));
+  const storeList=sf?[sf]:STORES;
+
+  // ── 展開所有紀錄，按時間排序（最舊到最新）──
   const allRows=[];
-  filtered.forEach(l=>{
+  const sortedLogs=[...filtered].sort((a,b)=>{
+    const ta=a.time?.toDate?a.time.toDate():new Date(a.time||0);
+    const tb=b.time?.toDate?b.time.toDate():new Date(b.time||0);
+    return ta-tb;
+  });
+  sortedLogs.forEach(l=>{
     const t=l.time?.toDate?l.time.toDate():new Date(l.time||Date.now());
     const dateStr=t.toLocaleDateString('zh-TW',{year:'numeric',month:'2-digit',day:'2-digit'});
-    const timeStr=t.toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit',hour12:false});
+    const timeStr=t.toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});
     const isIn=l.type==='進貨';
-    const subtype=l.subtype||'—';
-    const status=l.status||'待處理';
-    const operator=l.operator||'—';
-    const note=l.note||'';
+    const base={date:dateStr,time:timeStr,ts:t,isIn,store:l.store,subtype:l.subtype||'—',status:l.status||'待處理',operator:l.operator||'—',note:l.note||'',isBatch:l.isBatch};
     if(l.isBatch&&l.items){
-      l.items.forEach(it=>{
-        allRows.push({date:dateStr,time:timeStr,isIn,store:l.store,productName:it.name,qty:it.qty,subtype,status,operator,note,isBatch:true});
-      });
+      l.items.forEach(it=>allRows.push({...base,productName:it.name,productId:it.productId,qty:it.qty}));
     } else {
-      allRows.push({date:dateStr,time:timeStr,isIn,store:l.store,productName:l.product,qty:l.qty,subtype,status,operator,note,isBatch:false});
+      allRows.push({...base,productName:l.product,productId:l.productId,qty:l.qty});
     }
   });
 
-  const wb=XLSX.utils.book_new();
-  const colWidths=(arr)=>arr.map(w=>({wch:w}));
+  // ── 計算每筆操作後的庫存（流水帳）──
+  // 從現在的庫存往回推算期初庫存
+  // 先算出這批篩選紀錄中每個商品×分店的淨變動
+  const netChange={}; // key: `productName|||store` → net qty change (進+, 出-)
+  allRows.forEach(r=>{
+    const key=`${r.productName}|||${r.store}`;
+    if(!netChange[key])netChange[key]=0;
+    netChange[key]+=(r.isIn?r.qty:-r.qty);
+  });
 
-  // ── Sheet 1：庫存總表（各商品 × 各分店 目前庫存）──
-  const storeList=sf?[sf]:STORES;
+  // 期末庫存 = 目前 Firebase 庫存
+  // 期初庫存 = 期末 - 淨變動
+  const getCurrentQty=(productName,store)=>{
+    const p=products.find(x=>x.name===productName);
+    return p?(p.inventory||{})[store]||0:0;
+  };
+
+  // 計算每個 key 的期初庫存和流水餘額
+  const openingStock={}; // key → 期初庫存
+  Object.keys(netChange).forEach(key=>{
+    const [productName,store]=key.split('|||');
+    const closing=getCurrentQty(productName,store);
+    openingStock[key]=closing-netChange[key];
+  });
+
+  // 為每筆 allRows 計算操作後庫存（流水帳）
+  const runningBal={}; // key → 目前累計
+  Object.keys(openingStock).forEach(k=>runningBal[k]=openingStock[k]);
+
+  const allRowsWithBal=allRows.map(r=>{
+    const key=`${r.productName}|||${r.store}`;
+    runningBal[key]=runningBal[key]||0;
+    runningBal[key]+=(r.isIn?r.qty:-r.qty);
+    return {...r,balanceAfter:runningBal[key]};
+  });
+
+  // ── Sheet 1：庫存總表（目前實際庫存）──
   const inv1=[];
   products.forEach(p=>{
     const inv=p.inventory||{};
@@ -976,73 +1012,82 @@ window.exportExcel=function(){
     row['合計']=total;
     const isLow=storeList.some(s=>(inv[s]||0)<=(p.safe||0)*.5);
     const isWarn=!isLow&&storeList.some(s=>(inv[s]||0)<=(p.safe||0));
-    row['狀態']=isLow?'🔴 緊急補貨':isWarn?'🟡 庫存偏低':'🟢 正常';
+    row['狀態']=isLow?'緊急補貨':isWarn?'庫存偏低':'正常';
     inv1.push(row);
   });
   const ws1=XLSX.utils.json_to_sheet(inv1);
-  ws1['!cols']=colWidths([20,8,10,10,...storeList.map(()=>8),8,10]);
+  ws1['!cols']=colWidths([22,8,10,10,...storeList.map(()=>8),8,10]);
   XLSX.utils.book_append_sheet(wb,ws1,'庫存總表');
 
-  // ── Sheet 2：出貨總表 ──
-  const outRows=allRows.filter(r=>!r.isIn);
-
-  // 明細
-  const outDetail=outRows.map(r=>({
-    '日期':r.date,'時間':r.time,'分店':r.store,
-    '商品名稱':r.productName,'數量':r.qty,
-    '出貨類型':r.subtype,'出貨狀態':r.status,
-    '操作人員':r.operator,'備註':r.note,'批次':r.isBatch?'是':'否',
-  }));
-
-  // 出貨商品統整（商品 × 分店 × 類型加總）
+  // ── Sheet 2：出貨統整（含期初/期末庫存）──
+  const outRows=allRowsWithBal.filter(r=>!r.isIn);
   const outSum={};
   outRows.forEach(r=>{
     const key=`${r.productName}|||${r.store}`;
-    if(!outSum[key])outSum[key]={商品名稱:r.productName,分店:r.store,出售:0,店用:0,贈送:0,合計:0};
-    const s=r.subtype;
-    if(s==='出售')outSum[key].出售+=r.qty;
-    else if(s==='店用')outSum[key].店用+=r.qty;
-    else if(s==='贈送')outSum[key].贈送+=r.qty;
-    outSum[key].合計+=r.qty;
+    if(!outSum[key]){
+      const opening=openingStock[key]??getCurrentQty(r.productName,r.store);
+      outSum[key]={商品名稱:r.productName,分店:r.store,期初庫存:opening,進貨:0,出售:0,店用:0,贈送:0,出貨合計:0,期末庫存:getCurrentQty(r.productName,r.store)};
+    }
+    if(r.subtype==='出售')outSum[key].出售+=r.qty;
+    else if(r.subtype==='店用')outSum[key].店用+=r.qty;
+    else if(r.subtype==='贈送')outSum[key].贈送+=r.qty;
+    outSum[key].出貨合計+=r.qty;
   });
-  const outSumRows=Object.values(outSum).sort((a,b)=>a.商品名稱.localeCompare(b.商品名稱,'zh-TW'));
+  // 補上進貨量
+  allRowsWithBal.filter(r=>r.isIn).forEach(r=>{
+    const key=`${r.productName}|||${r.store}`;
+    if(outSum[key])outSum[key].進貨+=r.qty;
+  });
+  const outSumRows=Object.values(outSum).sort((a,b)=>a.商品名稱.localeCompare(b.商品名稱,'zh-TW')).map(s=>({
+    '商品名稱':s.商品名稱,'分店':s.分店,
+    '期初庫存':s.期初庫存,'進貨':s.進貨,
+    '出售':s.出售,'店用':s.店用,'贈送':s.贈送,'出貨合計':s.出貨合計,
+    '期末庫存':s.期末庫存,
+  }));
+  const ws2=XLSX.utils.json_to_sheet(outSumRows.length?outSumRows:[{'提示':'此期間無出貨'}]);
+  ws2['!cols']=colWidths([22,8,10,8,10,10,10,10,10]);
+  XLSX.utils.book_append_sheet(wb,ws2,'出貨統整');
 
-  // 合併：先統整，再明細（用空行隔開）
-  const ws2data=[
-    {'商品名稱':'【出貨統整】','分店':'','出售':'','店用':'','贈送':'','合計':''},
-    ...outSumRows,
-    {},
-    {'商品名稱':'【出貨明細】','分店':'','出售':'日期','店用':'時間','贈送':'出貨類型','合計':''},
-    ...outDetail.map(r=>({'商品名稱':r['商品名稱'],'分店':r['分店'],'出售':r['日期'],'店用':r['時間'],'贈送':r['出貨類型'],'合計':r['數量'],'操作人員':r['操作人員'],'備註':r['備註']})),
-  ];
-  const ws2=XLSX.utils.json_to_sheet(outDetail.length?outDetail:[{'提示':'此期間無出貨紀錄'}]);
-  ws2['!cols']=colWidths([10,8,8,20,6,10,8,10,16,6]);
-  // 加一個出貨統整 tab
-  const ws2b=XLSX.utils.json_to_sheet(outSumRows.length?outSumRows:[{'提示':'此期間無出貨'}]);
-  ws2b['!cols']=colWidths([20,8,10,10,10,10]);
-  XLSX.utils.book_append_sheet(wb,ws2b,'出貨統整');
-  XLSX.utils.book_append_sheet(wb,ws2,'出貨明細');
-
-  // ── Sheet 3：進貨總表 ──
-  const inRows=allRows.filter(r=>r.isIn);
-  const inDetail=inRows.map(r=>({
+  // ── Sheet 3：出貨明細（含操作後庫存）──
+  const outDetail=outRows.map(r=>({
     '日期':r.date,'時間':r.time,'分店':r.store,
-    '商品名稱':r.productName,'數量':r.qty,
+    '商品名稱':r.productName,'出貨數量':r.qty,
+    '操作後庫存':r.balanceAfter,
+    '出貨類型':r.subtype,'出貨狀態':r.status,
     '操作人員':r.operator,'備註':r.note,'批次':r.isBatch?'是':'否',
   }));
+  const ws3=XLSX.utils.json_to_sheet(outDetail.length?outDetail:[{'提示':'此期間無出貨紀錄'}]);
+  ws3['!cols']=colWidths([10,10,8,22,8,10,10,8,12,16,6]);
+  XLSX.utils.book_append_sheet(wb,ws3,'出貨明細');
+
+  // ── Sheet 4：進貨統整（含期初/期末庫存）──
+  const inRows=allRowsWithBal.filter(r=>r.isIn);
   const inSum={};
   inRows.forEach(r=>{
     const key=`${r.productName}|||${r.store}`;
-    if(!inSum[key])inSum[key]={商品名稱:r.productName,分店:r.store,進貨合計:0};
+    if(!inSum[key]){
+      inSum[key]={商品名稱:r.productName,分店:r.store,期初庫存:openingStock[key]??getCurrentQty(r.productName,r.store),進貨合計:0,期末庫存:getCurrentQty(r.productName,r.store)};
+    }
     inSum[key].進貨合計+=r.qty;
   });
-  const inSumRows=Object.values(inSum).sort((a,b)=>a.商品名稱.localeCompare(b.商品名稱,'zh-TW'));
-  const ws3b=XLSX.utils.json_to_sheet(inSumRows.length?inSumRows:[{'提示':'此期間無進貨'}]);
-  ws3b['!cols']=colWidths([20,8,12]);
-  const ws3=XLSX.utils.json_to_sheet(inDetail.length?inDetail:[{'提示':'此期間無進貨紀錄'}]);
-  ws3['!cols']=colWidths([10,8,8,20,6,10,16,6]);
-  XLSX.utils.book_append_sheet(wb,ws3b,'進貨統整');
-  XLSX.utils.book_append_sheet(wb,ws3,'進貨明細');
+  const inSumRows=Object.values(inSum).sort((a,b)=>a.商品名稱.localeCompare(b.商品名稱,'zh-TW')).map(s=>({
+    '商品名稱':s.商品名稱,'分店':s.分店,
+    '期初庫存':s.期初庫存,'進貨合計':s.進貨合計,'期末庫存':s.期末庫存,
+  }));
+  const ws4=XLSX.utils.json_to_sheet(inSumRows.length?inSumRows:[{'提示':'此期間無進貨'}]);
+  ws4['!cols']=colWidths([22,8,10,10,10]);
+  XLSX.utils.book_append_sheet(wb,ws4,'進貨統整');
+
+  // ── Sheet 5：進貨明細（含操作後庫存）──
+  const inDetail=inRows.map(r=>({
+    '日期':r.date,'時間':r.time,'分店':r.store,
+    '商品名稱':r.productName,'進貨數量':r.qty,
+    '操作後庫存':r.balanceAfter,
+    '操作人員':r.operator,'備註':r.note,'批次':r.isBatch?'是':'否',
+  }));
+  const ws5=XLSX.utils.json_to_sheet(inDetail.length?inDetail:[{'提示':'此期間無進貨紀錄'}]);
+  ws5['!cols']=colWidths([10,10,8,22,8,10,12,16,6]);
+  XLSX.utils.book_append_sheet(wb,ws5,'進貨明細');
 
   // 檔名
   const fromStr=dateFrom||'起始';
