@@ -906,19 +906,7 @@ function renderCards(){
   document.getElementById('inv-list').innerHTML=html||'<div class="empty">沒有符合的商品</div>';
 }
 
-// ── 效期輔助 ──
-function getExpiryInfo(dateStr){
-  if(!dateStr)return null;
-  const today=new Date();today.setHours(0,0,0,0);
-  const exp=new Date(dateStr);exp.setHours(0,0,0,0);
-  const days=Math.round((exp-today)/(1000*60*60*24));
-  let cls,label,icon;
-  if(days<0){cls='expiry-expired';icon='🔴';label=`已過期 ${Math.abs(days)} 天`;}
-  else if(days<=180){cls='expiry-urgent';icon='🟠';label=`即期 · 剩 ${days} 天`;}
-  else if(days<=365){cls='expiry-soon';icon='🟡';label=`注意 · 剩 ${days} 天`;}
-  else{cls='expiry-ok';icon='🟢';label=`${days} 天後到期`;}
-  return{days,cls,label,icon,dateStr};
-}
+
 
 // ── 效期輔助 ──
 function getExpiryInfo(dateStr){
@@ -1331,7 +1319,7 @@ function renderAlert(){
       <div style="text-align:right">
         <div style="font-size:13px;color:var(--muted);margin-bottom:4px">到期日</div>
         <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;color:var(--text)">${info.dateStr}</div>
-        <button class="btn-sm btn-out" style="margin-top:6px;padding:6px 12px" onclick="clearExpiry('${p.id}','${s}')">清除效期</button>
+        <button class="btn-sm btn-out" style="margin-top:6px;padding:6px 12px" onclick="openUpdateExpiry('${p.id}','${p.name}')">更新效期</button>
       </div>
     </div>`).join('')
   :'<div class="empty" style="color:var(--success);padding:16px 0">✅ 無即期或過期品</div>';
