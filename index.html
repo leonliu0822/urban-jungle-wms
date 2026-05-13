@@ -235,6 +235,15 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:0
 .role-badge.owner{background:#2d2410;color:var(--accent2);border:1px solid #4a3a18}
 .role-badge.manager{background:#1a1328;color:#8b78d8;border:1px solid #2a2040}
 .role-badge.staff{background:#0e2318;color:var(--success);border:1px solid #1e4530}
+/* 通知橫幅 */
+.notice-bar{display:none;align-items:center;justify-content:space-between;gap:10px;padding:10px 16px;background:#2d1c0a;border-bottom:1px solid #4d3010;cursor:pointer;flex-wrap:wrap}
+.notice-bar.show{display:flex}
+.notice-text{font-size:13px;color:#e07a2a;font-weight:700;display:flex;align-items:center;gap:6px}
+.notice-action{font-size:12px;color:var(--muted);text-decoration:underline;white-space:nowrap}
+/* 備份提醒 */
+.backup-bar{display:none;align-items:center;justify-content:space-between;gap:10px;padding:9px 16px;background:#1a1328;border-bottom:1px solid #2a2040;flex-wrap:wrap}
+.backup-bar.show{display:flex}
+.backup-text{font-size:12px;color:#8b78d8;display:flex;align-items:center;gap:6px}
 </style>
 </head>
 <body>
@@ -257,6 +266,19 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:0
     </div>
   </div>
 </header>
+
+<!-- 待處理訂單通知橫幅 -->
+<div class="notice-bar" id="pending-bar" onclick="goToPending()">
+  <div class="notice-text">⚠️ <span id="pending-bar-text">有待處理出貨訂單</span></div>
+  <span class="notice-action">前往查看 →</span>
+</div>
+
+<!-- 備份提醒橫幅 -->
+<div class="backup-bar" id="backup-bar">
+  <div class="backup-text">💾 <span id="backup-bar-text">建議每週備份一次資料</span></div>
+  <button onclick="doBackupExport()" style="padding:5px 12px;border-radius:7px;background:#1a1328;border:1px solid #3a2a60;color:#8b78d8;font-size:12px;cursor:pointer;font-family:'Noto Sans TC',sans-serif;font-weight:700;white-space:nowrap">📥 立即備份</button>
+  <button onclick="dismissBackup()" style="padding:5px 8px;border-radius:7px;background:transparent;border:none;color:var(--muted);font-size:16px;cursor:pointer">×</button>
+</div>
 
 <div class="content">
   <!-- INVENTORY -->
@@ -321,7 +343,10 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:0
   <!-- ALERT -->
   <div id="page-alert" class="page">
     <div class="page-title">庫存警示</div>
-    <div class="page-sub">需要補貨的品項</div>
+    <div class="page-sub">補貨警示 + 效期提醒</div>
+    <div style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1px;color:var(--warn);margin-bottom:8px">⏰ 效期提醒</div>
+    <div id="expiry-list"><div class="loading"><div class="spinner"></div>檢查效期...</div></div>
+    <div style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1px;color:var(--danger);margin:16px 0 8px">📦 補貨警示</div>
     <div id="alert-list"><div class="loading"><div class="spinner"></div>分析中...</div></div>
   </div>
 
@@ -379,6 +404,11 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:0
         <option value="待處理">⏳ 待處理</option>
         <option value="已處理">✅ 已處理</option>
       </select>
+    </div>
+    <div class="form-group" id="m-expiry-group" style="display:none">
+      <label class="form-label">效期日期（選填）</label>
+      <input class="form-input" type="date" id="m-expiry">
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">若此批有效期，系統會自動保留最早到期日顯示在庫存頁</div>
     </div>
     <div class="form-group"><label class="form-label">數量</label><input class="form-input" type="number" id="m-qty" min="1" value="1" inputmode="numeric"></div>
     <div class="form-group"><label class="form-label">備註（選填）</label><input class="form-input" type="text" id="m-note" placeholder="備註說明..."></div>
@@ -718,8 +748,41 @@ function listenProducts(){
 
 function listenLogs(){
   const q=query(collection(db,'logs'),orderBy('time','desc'),limit(300));
-  onSnapshot(q,snap=>{logs=snap.docs.map(d=>({id:d.id,...d.data()}));if(currentPage==='log')renderLog();});
+  onSnapshot(q,snap=>{
+    logs=snap.docs.map(d=>({id:d.id,...d.data()}));
+    if(currentPage==='log')renderLog();
+    updatePendingBar();
+  });
 }
+
+function updatePendingBar(){
+  if(!currentUser)return;
+  const isStaff=currentUser.role==='staff';
+  // 員工只看自己分店；老闆和店長看全店
+  const pending=logs.filter(l=>{
+    if(l.type!=='出貨'||l.status==='已處理')return false;
+    if(isStaff&&currentUser.store&&l.store!==currentUser.store)return false;
+    return true;
+  });
+  const bar=document.getElementById('pending-bar');
+  if(!bar)return;
+  if(pending.length>0){
+    const byStore={};
+    pending.forEach(l=>{byStore[l.store]=(byStore[l.store]||0)+1;});
+    const storeText=Object.entries(byStore).map(([s,n])=>`${s} ${n} 筆`).join('、');
+    const scope=isStaff&&currentUser.store?currentUser.store+'分店':'全店';
+    document.getElementById('pending-bar-text').textContent=`${scope}有 ${pending.length} 筆待處理出貨：${storeText}`;
+    bar.classList.add('show');
+  } else {
+    bar.classList.remove('show');
+  }
+}
+
+window.goToPending=function(){
+  // 切到紀錄頁並篩選待處理
+  switchPage('log',document.getElementById('bnav-log'));
+  filterLogStatus('pending',document.getElementById('sf-pending'));
+};
 
 function setSyncStatus(online){
   document.getElementById('sync-dot').className='sync-dot'+(online?'':' offline');
@@ -815,20 +878,58 @@ function renderCards(){
   document.getElementById('inv-list').innerHTML=html||'<div class="empty">沒有符合的商品</div>';
 }
 
+// ── 效期輔助 ──
+function getExpiryInfo(dateStr){
+  if(!dateStr)return null;
+  const today=new Date();today.setHours(0,0,0,0);
+  const exp=new Date(dateStr);exp.setHours(0,0,0,0);
+  const days=Math.round((exp-today)/(1000*60*60*24));
+  let cls,label,icon;
+  if(days<0){cls='expiry-expired';icon='🔴';label=`已過期 ${Math.abs(days)} 天`;}
+  else if(days<=180){cls='expiry-urgent';icon='🟠';label=`即期 · 剩 ${days} 天`;}
+  else if(days<=365){cls='expiry-soon';icon='🟡';label=`注意 · 剩 ${days} 天`;}
+  else{cls='expiry-ok';icon='🟢';label=`${days} 天後到期`;}
+  return{days,cls,label,icon,dateStr};
+}
+
 function buildCard(p,stores){
   const inv=p.inventory||{};
+  const expiry=p.expiry||{};
   const hasLow=stores.some(s=>(inv[s]||0)<=(p.safe||0)*.5);
   const hasWarn=!hasLow&&stores.some(s=>(inv[s]||0)<=(p.safe||0));
+
+  // 找出最早的效期（只在蠟品和保養品顯示）
+  const showExpiry=p.cat==='蠟品'||p.cat==='保養品';
+  let expiryBadge='';
+  if(showExpiry){
+    const storeExpiries=stores.map(s=>({store:s,exp:expiry[s]})).filter(x=>x.exp);
+    if(storeExpiries.length){
+      // 找最早的
+      storeExpiries.sort((a,b)=>a.exp.localeCompare(b.exp));
+      const earliest=storeExpiries[0];
+      const info=getExpiryInfo(earliest.exp);
+      if(info&&info.days<=365){
+        const multiStore=storeExpiries.length>1?` (${earliest.store})`:'';
+        expiryBadge=`<div><span class="expiry-badge ${info.cls}">${info.icon} ${info.label}${multiStore} · ${earliest.exp}</span></div>`;
+      }
+    }
+  }
+
   const storeQtys=stores.map(s=>{
     const q=inv[s]||0;const qCls=q<=(p.safe||0)*.5?'qty-low':q<=(p.safe||0)?'qty-warn':'qty-ok';
-    return `<div class="store-qty"><div class="store-name">${s}</div><div class="qty-val ${qCls}">${q}</div><div class="qty-safe">安全: ${p.safe||0}</div></div>`;
+    const storeExp=expiry[s];
+    const ei=storeExp?getExpiryInfo(storeExp):null;
+    const expLine=ei&&ei.days<=365?`<div class="store-expiry" style="color:${ei.days<0?'var(--danger)':ei.days<=30?'#e07a2a':'var(--warn)'}">${ei.icon} ${storeExp}</div>`:'';
+    return `<div class="store-qty"><div class="store-name">${s}</div><div class="qty-val ${qCls}">${q}</div><div class="qty-safe">安全: ${p.safe||0}</div>${expLine}</div>`;
   }).join('');
+
   const subcatBadge=p.subcat?`<span class="subcat-label">${p.subcat}</span>`:'';
   return `<div class="inv-card ${hasLow?'low':hasWarn?'warn':''}">
     <div class="inv-card-header">
       <div class="inv-name">${p.name}${subcatBadge}</div>
       <span class="tag ${CAT_CLASS[p.cat]||''}">${p.cat}</span>
     </div>
+    ${expiryBadge}
     <div class="store-qty-grid">${storeQtys}</div>
     <div class="card-actions">
       <button class="btn-sm btn-in" onclick="quickTx('in','${p.id}')">＋ 進貨</button>
@@ -1148,6 +1249,34 @@ window.deleteLog=async function(lid, desc){
 };
 
 function renderAlert(){
+  // ── 效期提醒 ──
+  const expiryItems=[];
+  products.forEach(p=>{
+    if(p.cat!=='蠟品'&&p.cat!=='保養品')return;
+    const expiry=p.expiry||{};
+    STORES.forEach(s=>{
+      if(!expiry[s])return;
+      const info=getExpiryInfo(expiry[s]);
+      if(info&&info.days<=365)expiryItems.push({p,s,info});
+    });
+  });
+  expiryItems.sort((a,b)=>a.info.days-b.info.days);
+  document.getElementById('expiry-list').innerHTML=expiryItems.length?expiryItems.map(({p,s,info})=>`
+    <div class="alert-card" style="border-color:${info.days<0?'#4d2018':info.days<=30?'#4d3010':'#4a400e'}">
+      <div>
+        <div class="alert-name">${p.name}</div>
+        <div class="alert-meta"><span class="tag ${CAT_CLASS[p.cat]||''}">${p.cat}</span> · ${s}</div>
+        <div style="margin-top:4px"><span class="expiry-badge ${info.cls}">${info.icon} ${info.label}</span></div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:13px;color:var(--muted);margin-bottom:4px">到期日</div>
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;color:var(--text)">${info.dateStr}</div>
+        <button class="btn-sm btn-out" style="margin-top:6px;padding:6px 12px" onclick="clearExpiry('${p.id}','${s}')">清除效期</button>
+      </div>
+    </div>`).join('')
+  :'<div class="empty" style="color:var(--success);padding:16px 0">✅ 無即期或過期品</div>';
+
+  // ── 補貨警示 ──
   let items=[];
   products.forEach(p=>{const inv=p.inventory||{};STORES.forEach(s=>{const q=inv[s]||0;if(q<=(p.safe||0))items.push({p,s,q});});});
   if(!items.length){document.getElementById('alert-list').innerHTML='<div class="empty" style="color:var(--success)">✅ 所有庫存正常！</div>';return;}
@@ -1161,6 +1290,16 @@ function renderAlert(){
     </div>`;
   }).join('');
 }
+
+// 清除效期（該批已出完或手動移除）
+window.clearExpiry=async function(pid,store){
+  if(!confirm(`確定要清除這間分店的效期記錄嗎？
+（商品已出完或效期已手動確認處理）`))return;
+  try{
+    await updateDoc(doc(db,'products',pid),{[`expiry.${store}`]:''});
+    showToast('✅ 效期已清除');
+  }catch(e){showToast('❌ 操作失敗');}
+};
 
 function renderManage(){
   if(!products.length){document.getElementById('manage-list').innerHTML='<div class="empty">尚無商品，請點上方「＋ 新增商品」</div>';return;}
@@ -1230,10 +1369,22 @@ window.openModal=function(type,pid,store){
   document.getElementById('modal-title').textContent=isIn?'➕ 新增進貨':'➖ 新增出貨';
   const btn=document.getElementById('modal-confirm');
   btn.className='btn '+(isIn?'btn-success-full':'btn-danger-full');btn.textContent=isIn?'確認進貨':'確認出貨';
-  // show/hide subtype & status
+  // show/hide subtype & status & expiry
   document.getElementById('m-subtype-group').style.display=isIn?'none':'block';
   document.getElementById('m-status-group').style.display=isIn?'none':'block';
   document.getElementById('m-status').value='待處理';
+  // 只有蠟品和保養品的進貨才顯示效期
+  const selPid=pid||document.getElementById('m-product')?.value;
+  const selP=products.find(x=>x.id===selPid);
+  const showExpiry=isIn&&selP&&(selP.cat==='蠟品'||selP.cat==='保養品');
+  document.getElementById('m-expiry-group').style.display=showExpiry?'block':'none';
+  document.getElementById('m-expiry').value='';
+  // 監聽商品切換時更新效期欄位顯示
+  document.getElementById('m-product').onchange=function(){
+    const p2=products.find(x=>x.id===this.value);
+    const show=isIn&&p2&&(p2.cat==='蠟品'||p2.cat==='保養品');
+    document.getElementById('m-expiry-group').style.display=show?'block':'none';
+  };
   populateProductSelect();
   if(pid)document.getElementById('m-product').value=pid;
   if(store)document.getElementById('m-store').value=store;
@@ -1266,7 +1417,16 @@ window.submitTransaction=async function(){
     const subtype = currentModal==='out' ? document.getElementById('m-subtype').value : '';
     const status = currentModal==='out' ? document.getElementById('m-status').value : '';
     const operator=currentUser?.displayName||currentUser?.username||'—';
-    await addDoc(collection(db,'logs'),{product:p.name,productId:pid,store,type:currentModal==='in'?'進貨':'出貨',subtype,status,qty,note,operator,isBatch:false,time:serverTimestamp()});
+    const expiry=currentModal==='in'?document.getElementById('m-expiry').value:'';
+    // 若有填效期，比對並更新該分店最早到期日
+    if(expiry && currentModal==='in'){
+      const expiryField=`expiry.${store}`;
+      const existingExpiry=((await getDoc(doc(db,'products',pid))).data()?.expiry||{})[store];
+      if(!existingExpiry||expiry<existingExpiry){
+        await updateDoc(doc(db,'products',pid),{[expiryField]:expiry});
+      }
+    }
+    await addDoc(collection(db,'logs'),{product:p.name,productId:pid,store,type:currentModal==='in'?'進貨':'出貨',subtype,status,qty,note,operator,expiry:expiry||'',isBatch:false,time:serverTimestamp()});
     closeModal();showToast(`${currentModal==='in'?'✅':'📤'} ${store} · ${p.name} ${currentModal==='in'?'進貨':'出貨'} ${qty} 件`);
   }catch(e){console.error(e);showToast('❌ 操作失敗，請檢查網路');}
   finally{btn.disabled=false;}
@@ -1454,11 +1614,98 @@ window.showToast=function(msg){
   setTimeout(()=>t.classList.remove('show'),3000);
 };
 
+// ── 備份提醒 ──
+function checkBackupReminder(){
+  const lastBackup=localStorage.getItem('wms_last_backup');
+  const bar=document.getElementById('backup-bar');
+  if(!bar)return;
+  if(!lastBackup){
+    document.getElementById('backup-bar-text').textContent='尚未備份過資料，建議立即備份';
+    bar.classList.add('show');return;
+  }
+  const daysSince=Math.floor((Date.now()-parseInt(lastBackup))/(1000*60*60*24));
+  if(daysSince>=7){
+    document.getElementById('backup-bar-text').textContent=`距上次備份已 ${daysSince} 天，建議立即備份`;
+    bar.classList.add('show');
+  }
+}
+
+window.dismissBackup=function(){
+  document.getElementById('backup-bar').classList.remove('show');
+};
+
+window.doBackupExport=function(){
+  // 全量備份：不套用任何篩選，匯出所有資料
+  const today=new Date().toISOString().slice(0,10);
+
+  const wb=XLSX.utils.book_new();
+  const colWidths=(arr)=>arr.map(w=>({wch:w}));
+
+  // Sheet 1: 庫存總表
+  const inv1=[];
+  products.forEach(p=>{
+    const inv=p.inventory||{};
+    const expiry=p.expiry||{};
+    const row={'商品名稱':p.name,'大分類':p.cat,'子分類':p.subcat||'—','安全庫存':p.safe||0};
+    let total=0;
+    STORES.forEach(s=>{row[s]=inv[s]||0;total+=inv[s]||0;});
+    row['合計']=total;
+    STORES.forEach(s=>{if(expiry[s])row[`效期_${s}`]=expiry[s];});
+    const isLow=STORES.some(s=>(inv[s]||0)<=(p.safe||0)*.5);
+    const isWarn=!isLow&&STORES.some(s=>(inv[s]||0)<=(p.safe||0));
+    row['狀態']=isLow?'緊急補貨':isWarn?'庫存偏低':'正常';
+    inv1.push(row);
+  });
+  const ws1=XLSX.utils.json_to_sheet(inv1);
+  ws1['!cols']=colWidths([22,8,10,10,8,8,8,8,8,10,10,10,10,10]);
+  XLSX.utils.book_append_sheet(wb,ws1,'庫存總表');
+
+  // Sheet 2: 所有紀錄
+  const allLogRows=[];
+  const sortedAll=[...logs].sort((a,b)=>{
+    const ta=a.time?.toDate?a.time.toDate():new Date(a.time||0);
+    const tb=b.time?.toDate?b.time.toDate():new Date(b.time||0);
+    return ta-tb;
+  });
+  sortedAll.forEach(l=>{
+    const t=l.time?.toDate?l.time.toDate():new Date(l.time||Date.now());
+    const dateStr=t.toLocaleDateString('zh-TW',{year:'numeric',month:'2-digit',day:'2-digit'});
+    const timeStr=t.toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit',hour12:false});
+    const isIn=l.type==='進貨';
+    if(l.isBatch&&l.items){
+      l.items.forEach(it=>allLogRows.push({
+        '日期':dateStr,'時間':timeStr,'分店':l.store,'類型':l.type,
+        '出貨類型':isIn?'—':l.subtype||'—','出貨狀態':isIn?'—':l.status||'待處理',
+        '商品名稱':it.name,'數量':it.qty,'操作人員':l.operator||'—','備註':l.note||'','批次':'是'
+      }));
+    } else {
+      allLogRows.push({
+        '日期':dateStr,'時間':timeStr,'分店':l.store,'類型':l.type,
+        '出貨類型':isIn?'—':l.subtype||'—','出貨狀態':isIn?'—':l.status||'待處理',
+        '商品名稱':l.product,'數量':l.qty,'操作人員':l.operator||'—','備註':l.note||'','批次':'否'
+      });
+    }
+  });
+  const ws2=XLSX.utils.json_to_sheet(allLogRows.length?allLogRows:[{'提示':'無紀錄'}]);
+  ws2['!cols']=colWidths([10,8,8,8,10,8,22,6,12,16,6]);
+  XLSX.utils.book_append_sheet(wb,ws2,'所有進出貨紀錄');
+
+  const fname=`UrbanJungle_完整備份_${today}.xlsx`;
+  XLSX.writeFile(wb,fname);
+  localStorage.setItem('wms_last_backup',Date.now().toString());
+  document.getElementById('backup-bar').classList.remove('show');
+  showToast(`✅ 備份完成：${fname}`);
+};
+
 async function start(){
   try{listenProducts();listenLogs();}
   catch(e){console.error(e);setSyncStatus(false);showToast('❌ 無法連線 Firebase');}
   const filterMap={'cat-filter':renderCards,'log-store':renderLog,'log-type':renderLog,'log-subtype':renderLog,'log-date-from':renderLog,'log-date-to':renderLog};
   Object.entries(filterMap).forEach(([id,fn])=>{const el=document.getElementById(id);if(el){el.addEventListener('change',fn);el.addEventListener('input',fn);}});
+  // 檢查備份提醒（只有老闆和店長看到）
+  if(currentUser?.role==='owner'||currentUser?.role==='manager'){
+    setTimeout(checkBackupReminder,2000);
+  }
 }
 
 // ─── BOOT ───
