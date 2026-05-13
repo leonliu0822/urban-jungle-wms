@@ -66,6 +66,7 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:0
 .tag-wax{background:#2d200a;color:#c8913a}
 .tag-care{background:#0e2318;color:#5cb87a}
 .tag-supply{background:#1a1328;color:#8b78d8}
+.tag-merch{background:#0e1f28;color:#4ab8d4}
 .store-qty-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:10px}
 .store-qty{background:var(--surface2);border-radius:7px;padding:8px 10px}
 .store-name{font-size:10px;color:var(--muted);margin-bottom:2px}
@@ -303,6 +304,7 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:0
       <select class="filter-select" id="cat-filter" onchange="onCatChange()" oninput="onCatChange()">
         <option value="">全部分類</option><option value="蠟品">🟠 蠟品</option>
         <option value="保養品">🟢 保養品</option><option value="耗材">🟣 耗材</option>
+        <option value="UJ周邊">🔵 UJ周邊</option>
       </select>
     </div>
     <div class="subcat-tabs" id="subcat-tabs" style="display:none"></div>
@@ -425,8 +427,8 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:0
     <div class="modal-handle"></div>
     <div class="modal-title">新增商品</div>
     <div class="form-group"><label class="form-label">商品名稱</label><input class="form-input" type="text" id="ap-name" placeholder="例：玫瑰蠟"></div>
-    <div class="form-group"><label class="form-label">大分類</label><select class="form-select" id="ap-cat" onchange="updateApSubcat()" oninput="updateApSubcat()"><option value="蠟品">🟠 蠟品</option><option value="保養品">🟢 保養品</option><option value="耗材">🟣 耗材</option></select></div>
-    <div class="form-group"><label class="form-label">子分類</label><select class="form-select" id="ap-subcat"></select></div>
+    <div class="form-group"><label class="form-label">大分類</label><select class="form-select" id="ap-cat" onchange="updateApSubcat()" oninput="updateApSubcat()"><option value="蠟品">🟠 蠟品</option><option value="保養品">🟢 保養品</option><option value="耗材">🟣 耗材</option><option value="UJ周邊">🔵 UJ周邊</option></select></div>
+    <div class="form-group" id="ap-subcat-group"><label class="form-label">子分類</label><select class="form-select" id="ap-subcat"></select></div>
     <div class="form-group"><label class="form-label">安全庫存量</label><input class="form-input" type="number" id="ap-safe" value="10" min="1" inputmode="numeric"></div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeAddProduct()">取消</button>
@@ -497,12 +499,37 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:0
     <div class="modal-title">✏️ 編輯商品</div>
     <input type="hidden" id="ep-id">
     <div class="form-group"><label class="form-label">商品名稱</label><input class="form-input" type="text" id="ep-name"></div>
-    <div class="form-group"><label class="form-label">大分類</label><select class="form-select" id="ep-cat" onchange="updateEpSubcat()" oninput="updateEpSubcat()"><option value="蠟品">🟠 蠟品</option><option value="保養品">🟢 保養品</option><option value="耗材">🟣 耗材</option></select></div>
-    <div class="form-group"><label class="form-label">子分類</label><select class="form-select" id="ep-subcat"></select></div>
+    <div class="form-group"><label class="form-label">大分類</label><select class="form-select" id="ep-cat" onchange="updateEpSubcat()" oninput="updateEpSubcat()"><option value="蠟品">🟠 蠟品</option><option value="保養品">🟢 保養品</option><option value="耗材">🟣 耗材</option><option value="UJ周邊">🔵 UJ周邊</option></select></div>
+    <div class="form-group" id="ep-subcat-group"><label class="form-label">子分類</label><select class="form-select" id="ep-subcat"></select></div>
     <div class="form-group"><label class="form-label">安全庫存量</label><input class="form-input" type="number" id="ep-safe" min="0" inputmode="numeric"></div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeEditProduct()">取消</button>
       <button class="btn btn-primary" onclick="submitEditProduct()">儲存變更</button>
+    </div>
+  </div>
+</div>
+
+<!-- UPDATE EXPIRY MODAL -->
+<div class="modal-overlay" id="update-expiry-overlay" onclick="if(event.target===this)closeUpdateExpiry()">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">🗓️ 更新效期</div>
+    <div style="font-size:13px;color:var(--muted);margin-bottom:16px" id="ue-product-name"></div>
+    <input type="hidden" id="ue-pid">
+    <div class="form-group">
+      <label class="form-label">分店</label>
+      <select class="form-select" id="ue-store">
+        <option>台北</option><option>新竹</option><option>台中</option><option>高雄</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">效期日期</label>
+      <input class="form-input" type="date" id="ue-date">
+    </div>
+    <div style="font-size:11px;color:var(--muted);margin-top:-8px;margin-bottom:14px">留空並儲存可清除該分店效期</div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeUpdateExpiry()">取消</button>
+      <button class="btn btn-primary" onclick="submitUpdateExpiry()">儲存效期</button>
     </div>
   </div>
 </div>
@@ -578,11 +605,12 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
 const STORES = ['台北','新竹','台中','高雄'];
-const CAT_CLASS = {'蠟品':'tag-wax','保養品':'tag-care','耗材':'tag-supply'};
+const CAT_CLASS = {'蠟品':'tag-wax','保養品':'tag-care','耗材':'tag-supply','UJ周邊':'tag-merch'};
 const SUBCATS = {
   '蠟品':    ['全部','硬蠟','軟蠟','季節限定'],
   '保養品':  ['全部','乳液','精華油','去角質','調理系列','精靈系列'],
   '耗材':    ['全部','義朵耗材','店用耗材'],
+  'UJ周邊':  [],
 };
 const ROLE_LABEL = {owner:'👑 老闆', manager:'🏪 店長', staff:'👤 員工'};
 const ROLE_COLOR = {owner:'role-owner', manager:'role-manager', staff:'role-staff'};
@@ -732,7 +760,7 @@ async function initOwner(){
 function listenProducts(){
   onSnapshot(collection(db,'products'),snap=>{
     products=snap.docs.map(d=>({id:d.id,...d.data()}));
-    const catOrder=['蠟品','保養品','耗材'];
+    const catOrder=['蠟品','保養品','耗材','UJ周邊'];
     products.sort((a,b)=>{
       const co=catOrder.indexOf(a.cat)-catOrder.indexOf(b.cat);if(co!==0)return co;
       const sa=SUBCATS[a.cat]||[];const sb=SUBCATS[b.cat]||[];
@@ -848,7 +876,7 @@ function renderCards(){
   // Group by cat then subcat when showing all
   let html='';
   if(!cat){
-    const catOrder=['蠟品','保養品','耗材'];
+    const catOrder=['蠟品','保養品','耗材','UJ周邊'];
     catOrder.forEach(c=>{
       const catItems=filtered.filter(p=>p.cat===c);
       if(!catItems.length)return;
@@ -934,6 +962,7 @@ function buildCard(p,stores){
   }).join('');
 
   const subcatBadge=p.subcat?`<span class="subcat-label">${p.subcat}</span>`:'';
+  const showExpiryBtn=p.cat==='蠟品'||p.cat==='保養品';
   return `<div class="inv-card ${hasLow?'low':hasWarn?'warn':''}">
     <div class="inv-card-header">
       <div class="inv-name">${p.name}${subcatBadge}</div>
@@ -944,6 +973,7 @@ function buildCard(p,stores){
     <div class="card-actions">
       <button class="btn-sm btn-in" onclick="quickTx('in','${p.id}')">＋ 進貨</button>
       <button class="btn-sm btn-out" onclick="quickTx('out','${p.id}')">－ 出貨</button>
+      ${showExpiryBtn?`<button class="btn-sm" style="background:#1a1f28;color:#4ab8d4;border:1px solid #1e3040;flex:0 0 auto;padding:8px 10px" onclick="openUpdateExpiry('${p.id}','${p.name}')">🗓️</button>`:''}
     </div>
   </div>`;
 }
@@ -1304,8 +1334,36 @@ function renderAlert(){
   }).join('');
 }
 
-// 清除效期（該批已出完或手動移除）
-window.clearExpiry=async function(pid,store){
+// ── 更新效期 ──
+window.openUpdateExpiry=function(pid,name){
+  const p=products.find(x=>x.id===pid);
+  document.getElementById('ue-pid').value=pid;
+  document.getElementById('ue-product-name').textContent=name;
+  // 預帶目前效期
+  const store=document.getElementById('ue-store').value||'台北';
+  const currentExpiry=(p?.expiry||{})[store]||'';
+  document.getElementById('ue-date').value=currentExpiry;
+  // 切換分店時自動帶入該店效期
+  document.getElementById('ue-store').onchange=function(){
+    const exp=(p?.expiry||{})[this.value]||'';
+    document.getElementById('ue-date').value=exp;
+  };
+  document.getElementById('update-expiry-overlay').classList.add('open');
+};
+window.closeUpdateExpiry=function(){
+  document.getElementById('update-expiry-overlay').classList.remove('open');
+};
+window.submitUpdateExpiry=async function(){
+  const pid=document.getElementById('ue-pid').value;
+  const store=document.getElementById('ue-store').value;
+  const date=document.getElementById('ue-date').value;
+  try{
+    await updateDoc(doc(db,'products',pid),{[`expiry.${store}`]:date});
+    closeUpdateExpiry();
+    const p=products.find(x=>x.id===pid);
+    showToast(date?`✅ ${p?.name} ${store} 效期已更新：${date}`:`🗓️ ${p?.name} ${store} 效期已清除`);
+  }catch(e){console.error(e);showToast('❌ 更新失敗，請重試');}
+};
   if(!confirm(`確定要清除這間分店的效期記錄嗎？
 （商品已出完或效期已手動確認處理）`))return;
   try{
@@ -1316,7 +1374,7 @@ window.clearExpiry=async function(pid,store){
 
 function renderManage(){
   if(!products.length){document.getElementById('manage-list').innerHTML='<div class="empty">尚無商品，請點上方「＋ 新增商品」</div>';return;}
-  const catOrder=['蠟品','保養品','耗材'];
+  const catOrder=['蠟品','保養品','耗材','UJ周邊'];
   let html='';
   catOrder.forEach(c=>{
     const catItems=products.filter(p=>p.cat===c);
@@ -1455,11 +1513,15 @@ function populateProductSelect(){
 window.updateApSubcat=function(){
   const cat=document.getElementById('ap-cat').value;
   const subs=(SUBCATS[cat]||[]).filter(s=>s!=='全部');
+  const group=document.getElementById('ap-subcat-group');
+  if(group)group.style.display=subs.length?'block':'none';
   document.getElementById('ap-subcat').innerHTML=subs.map(s=>`<option value="${s}">${s}</option>`).join('');
 };
 window.updateEpSubcat=function(selected){
   const cat=document.getElementById('ep-cat').value;
   const subs=(SUBCATS[cat]||[]).filter(s=>s!=='全部');
+  const group=document.getElementById('ep-subcat-group');
+  if(group)group.style.display=subs.length?'block':'none';
   document.getElementById('ep-subcat').innerHTML=subs.map(s=>`<option value="${s}" ${s===selected?'selected':''}>${s}</option>`).join('');
 };
 
