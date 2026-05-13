@@ -920,18 +920,8 @@ function getExpiryInfo(dateStr){
   return{days,cls,label,icon,dateStr};
 }
 
-// ── 庫存歸零時自動清除效期 ──
-async function autoCheckAndClearExpiry(pid, store){
-  const p=products.find(x=>x.id===pid);
-  if(!p)return;
-  if((p.cat!=='蠟品'&&p.cat!=='保養品'))return;
-  const qty=(p.inventory||{})[store]||0;
-  const hasExpiry=(p.expiry||{})[store];
-  if(qty<=0&&hasExpiry){
-    await updateDoc(doc(db,'products',pid),{[`expiry.${store}`]:''});
-    showToast(`🗓️ ${p.name} ${store} 庫存歸零，效期已自動清除`);
-  }
-}
+// ── 效期輔助 ──
+function getExpiryInfo(dateStr){
   if(!dateStr)return null;
   const today=new Date();today.setHours(0,0,0,0);
   const exp=new Date(dateStr);exp.setHours(0,0,0,0);
@@ -942,6 +932,19 @@ async function autoCheckAndClearExpiry(pid, store){
   else if(days<=365){cls='expiry-soon';icon='🟡';label=`注意 · 剩 ${days} 天`;}
   else{cls='expiry-ok';icon='🟢';label=`${days} 天後到期`;}
   return{days,cls,label,icon,dateStr};
+}
+
+// ── 庫存歸零時自動清除效期 ──
+async function autoCheckAndClearExpiry(pid, store){
+  const p=products.find(x=>x.id===pid);
+  if(!p)return;
+  if(p.cat!=='蠟品'&&p.cat!=='保養品')return;
+  const qty=(p.inventory||{})[store]||0;
+  const hasExpiry=(p.expiry||{})[store];
+  if(qty<=0&&hasExpiry){
+    await updateDoc(doc(db,'products',pid),{[`expiry.${store}`]:''});
+    showToast(`🗓️ ${p.name} ${store} 庫存歸零，效期已自動清除`);
+  }
 }
 
 function buildCard(p,stores){
@@ -1377,13 +1380,6 @@ window.submitUpdateExpiry=async function(){
     const p=products.find(x=>x.id===pid);
     showToast(date?`✅ ${p?.name} ${store} 效期已更新：${date}`:`🗓️ ${p?.name} ${store} 效期已清除`);
   }catch(e){console.error(e);showToast('❌ 更新失敗，請重試');}
-};
-  if(!confirm(`確定要清除這間分店的效期記錄嗎？
-（商品已出完或效期已手動確認處理）`))return;
-  try{
-    await updateDoc(doc(db,'products',pid),{[`expiry.${store}`]:''});
-    showToast('✅ 效期已清除');
-  }catch(e){showToast('❌ 操作失敗');}
 };
 
 function renderManage(){
