@@ -878,8 +878,18 @@ function renderCards(){
   document.getElementById('inv-list').innerHTML=html||'<div class="empty">沒有符合的商品</div>';
 }
 
-// ── 效期輔助 ──
-function getExpiryInfo(dateStr){
+// ── 庫存歸零時自動清除效期 ──
+async function autoCheckAndClearExpiry(pid, store){
+  const p=products.find(x=>x.id===pid);
+  if(!p)return;
+  if((p.cat!=='蠟品'&&p.cat!=='保養品'))return;
+  const qty=(p.inventory||{})[store]||0;
+  const hasExpiry=(p.expiry||{})[store];
+  if(qty<=0&&hasExpiry){
+    await updateDoc(doc(db,'products',pid),{[`expiry.${store}`]:''});
+    showToast(`🗓️ ${p.name} ${store} 庫存歸零，效期已自動清除`);
+  }
+}
   if(!dateStr)return null;
   const today=new Date();today.setHours(0,0,0,0);
   const exp=new Date(dateStr);exp.setHours(0,0,0,0);
@@ -1224,6 +1234,8 @@ window.deleteLog=async function(lid, desc){
         // 立即更新本地資料
         const fresh=await getDoc(pRef);
         if(fresh.exists()){const idx=products.findIndex(x=>x.id===item.productId);if(idx>=0)products[idx]={id:item.productId,...fresh.data()};}
+        // 刪除出貨紀錄→補回庫存；若原本是進貨刪除→庫存歸零則清除效期
+        await autoCheckAndClearExpiry(item.productId,store);
       }
     } else {
       // 單品
@@ -1232,6 +1244,7 @@ window.deleteLog=async function(lid, desc){
         await updateDoc(pRef,{[`inventory.${store}`]:increment(reversal*logEntry.qty)});
         const fresh=await getDoc(pRef);
         if(fresh.exists()){const idx=products.findIndex(x=>x.id===logEntry.productId);if(idx>=0)products[idx]={id:logEntry.productId,...fresh.data()};}
+        await autoCheckAndClearExpiry(logEntry.productId,store);
       }
     }
 
@@ -1414,6 +1427,8 @@ window.submitTransaction=async function(){
       const idx=products.findIndex(x=>x.id===pid);
       if(idx>=0){products[idx]={id:pid,...freshDoc.data()};renderCards();updateStats();}
     }
+    // 出貨後若庫存歸零，自動清除效期
+    if(currentModal==='out') await autoCheckAndClearExpiry(pid,store);
     const subtype = currentModal==='out' ? document.getElementById('m-subtype').value : '';
     const status = currentModal==='out' ? document.getElementById('m-status').value : '';
     const operator=currentUser?.displayName||currentUser?.username||'—';
@@ -1576,6 +1591,8 @@ window.submitBatch=async function(){
     for(const [pid] of entries){
       const freshDoc=await getDoc(doc(db,'products',pid));
       if(freshDoc.exists()){const idx=products.findIndex(x=>x.id===pid);if(idx>=0)products[idx]={id:pid,...freshDoc.data()};}
+      // 出貨後若庫存歸零，自動清除效期
+      if(!isIn) await autoCheckAndClearExpiry(pid,store);
     }
     renderCards();updateStats();
     const totalQty=entries.reduce((a,[,q])=>a+q,0);
