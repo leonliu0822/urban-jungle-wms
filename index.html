@@ -970,7 +970,7 @@ function renderLog(){
     const operatorTag=l.operator?`<span class="operator-tag">👤 ${l.operator}</span>`:'';
     const isDone=l.status==='已處理';
     const statusBtn=!isIn?`<button class="status-btn ${isDone?'status-done':'status-pending'}" onclick="toggleStatus('${l.id}','${isDone?'待處理':'已處理'}')">${isDone?'✅ 已處理':'⏳ 待處理'}</button>`:'<span style="font-size:11px;color:var(--muted)">— 進貨</span>';
-    const canDelLog=currentUser?.role==='owner';
+    const canDelLog=currentUser?.role==='owner'||currentUser?.role==='manager';
     const delBtn=canDelLog?`<button class="btn-sm btn-out" style="padding:5px 12px;flex:none" onclick="deleteLog('${l.id}','${(l.isBatch?'批次紀錄':l.product).replace(/'/g,'&#39;')}')">🗑️ 刪除</button>`:'<span></span>';
 
     if(l.isBatch&&l.items){
