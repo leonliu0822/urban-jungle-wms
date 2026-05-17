@@ -59,15 +59,17 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:0
 .backup-dismiss{background:transparent;border:none;color:var(--muted);font-size:18px;cursor:pointer;margin-left:auto}
 
 /* ── BOTTOM NAV ── */
-.bottom-nav{position:fixed;bottom:0;left:0;right:0;background:var(--surface);border-top:1px solid var(--border);display:none;z-index:100;padding-bottom:env(safe-area-inset-bottom)}
-.bnav-items{display:flex}
-.bnav-item{flex:1;display:flex;flex-direction:column;align-items:center;padding:10px 4px 8px;cursor:pointer;color:var(--muted);font-size:10px;gap:3px;position:relative;transition:color .15s;border:none;background:transparent;font-family:'Noto Sans TC',sans-serif}
+.bottom-nav{position:fixed;bottom:0;left:0;right:0;background:var(--surface);border-top:1.5px solid var(--border);display:none;z-index:100;padding-bottom:env(safe-area-inset-bottom)}
+.bnav-items{display:flex;min-height:62px}
+.bnav-item{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:10px 6px 8px;cursor:pointer;color:var(--muted);font-size:11px;font-weight:500;gap:4px;position:relative;transition:color .15s,background .15s;border:none;background:transparent;font-family:'Noto Sans TC',sans-serif;min-width:0}
+.bnav-item:active{background:var(--surface2)}
 .bnav-item.active{color:var(--accent)}
-.bnav-icon{font-size:22px;line-height:1}
-.bnav-badge{position:absolute;top:6px;right:calc(50% - 20px);background:var(--danger);color:#fff;font-size:9px;font-weight:700;border-radius:8px;padding:1px 5px;min-width:16px;text-align:center}
+.bnav-item.active .bnav-icon{transform:scale(1.1)}
+.bnav-icon{font-size:24px;line-height:1;transition:transform .2s}
+.bnav-badge{position:absolute;top:7px;right:calc(50% - 22px);background:var(--danger);color:#fff;font-size:10px;font-weight:700;border-radius:8px;padding:2px 6px;min-width:18px;text-align:center}
 
 /* ── CONTENT ── */
-.content{display:none;padding:0;padding-bottom:calc(64px + env(safe-area-inset-bottom))}
+.content{display:none;padding:0;padding-bottom:calc(72px + env(safe-area-inset-bottom))}
 .page{display:none}.page.active{display:block}
 
 /* ── HOME PAGE ── */
@@ -272,6 +274,10 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:0
 .batch-body{flex:1;overflow-y:auto}
 .batch-product-list{padding:0 16px 16px}
 .batch-item{display:flex;align-items:center;gap:12px;padding:14px 0;border-bottom:1px solid var(--border)}
+.batch-stock-info{display:inline-block;font-size:11px;font-weight:700;margin-left:8px;padding:2px 8px;border-radius:8px;background:var(--surface2);vertical-align:middle}
+.batch-stock-info.qty-ok{color:var(--success)}
+.batch-stock-info.qty-warn{color:var(--warn)}
+.batch-stock-info.qty-low{color:var(--danger)}
 .batch-item:last-child{border-bottom:none}
 .batch-item-info{flex:1;min-width:0}
 .batch-item-name{font-weight:700;font-size:15px}
@@ -520,6 +526,7 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:0
     <div class="modal-title" id="modal-title">新增進貨</div>
     <div class="form-group"><label class="form-label">分店</label><select class="form-select" id="m-store"><option>台北</option><option>新竹</option><option>台中</option><option>高雄</option></select></div>
     <div class="form-group"><label class="form-label">商品</label><select class="form-select" id="m-product"></select></div>
+    <div id="m-stock-hint" style="display:none;background:var(--surface2);border-radius:var(--radius-sm);padding:10px 14px;margin-bottom:14px;border:1px solid var(--border)"></div>
     <div class="form-group" id="m-subtype-group" style="display:none"><label class="form-label">出貨類型</label><select class="form-select" id="m-subtype"><option value="出售">💰 出售</option><option value="店用">🏪 店用</option><option value="贈送">🎁 贈送</option></select></div>
     <div class="form-group" id="m-status-group" style="display:none"><label class="form-label">出貨狀態</label><select class="form-select" id="m-status"><option value="待處理">⏳ 待處理</option><option value="已處理">✅ 已處理</option></select></div>
     <div class="form-group" id="m-expiry-group" style="display:none"><label class="form-label">效期日期（選填）</label><input class="form-input" type="date" id="m-expiry"><div class="form-hint">系統自動保留最早到期日</div></div>
@@ -612,7 +619,7 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:0
       </div>
     </div>
     <div class="batch-toolbar">
-      <select class="batch-sel-store" id="batch-store"><option>台北</option><option>新竹</option><option>台中</option><option>高雄</option></select>
+      <select class="batch-sel-store" id="batch-store" onchange="renderBatchList()" oninput="renderBatchList()"><option>台北</option><option>新竹</option><option>台中</option><option>高雄</option></select>
       <input class="batch-search" id="batch-search" placeholder="🔍 搜尋品項..." oninput="renderBatchList()">
     </div>
     <div class="batch-body">
@@ -1068,10 +1075,22 @@ window.openModal=function(type,pid,store){
   const showExp=isIn&&selP&&(selP.cat==='蠟品'||selP.cat==='保養品');
   document.getElementById('m-expiry-group').style.display=showExp?'block':'none';
   document.getElementById('m-expiry').value='';
-  document.getElementById('m-product').onchange=function(){
-    const p2=products.find(x=>x.id===this.value);
+  function updateModalStockHint(){
+    const pid=document.getElementById('m-product').value;
+    const store=document.getElementById('m-store').value;
+    const p2=products.find(x=>x.id===pid);
     document.getElementById('m-expiry-group').style.display=(isIn&&p2&&(p2.cat==='蠟品'||p2.cat==='保養品'))?'block':'none';
-  };
+    const hint=document.getElementById('m-stock-hint');
+    if(hint&&!isIn&&p2){
+      const qty=(p2.inventory||{})[store]||0;
+      const qCls=qty<=0?'qty-low':qty<=(p2.safe||0)*.5?'qty-low':qty<=(p2.safe||0)?'qty-warn':'qty-ok';
+      hint.innerHTML=`<span style="font-size:13px;color:var(--muted)">目前庫存：</span><span class="${qCls}" style="font-family:'Bebas Neue',sans-serif;font-size:20px">${qty}</span> <span style="font-size:12px;color:var(--muted)">件</span>`;
+      hint.style.display='block';
+    }else if(hint){hint.style.display='none';}
+  }
+  document.getElementById('m-product').onchange=updateModalStockHint;
+  document.getElementById('m-store').onchange=updateModalStockHint;
+  updateModalStockHint();
   document.getElementById('m-qty').value=1;document.getElementById('m-note').value='';
   document.getElementById('modal-overlay').classList.add('open');
 };
