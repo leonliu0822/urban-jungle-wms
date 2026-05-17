@@ -65,7 +65,8 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:0
 .bnav-item:active{background:var(--surface2)}
 .bnav-item.active{color:var(--accent)}
 .bnav-item.active .bnav-icon{transform:scale(1.1)}
-.bnav-hidden{display:none!important;flex:0!important;width:0!important;overflow:hidden!important}
+.bnav-hidden{position:absolute!important;width:0!important;height:0!important;overflow:hidden!important;opacity:0!important;pointer-events:none!important}
+.bnav-items{justify-content:space-evenly}
 .bnav-icon{font-size:24px;line-height:1;transition:transform .2s}
 .bnav-badge{position:absolute;top:7px;right:calc(50% - 22px);background:var(--danger);color:#fff;font-size:10px;font-weight:700;border-radius:8px;padding:2px 6px;min-width:18px;text-align:center}
 
@@ -862,24 +863,51 @@ function buildCard(p,stores){
   const hasLow=stores.some(s=>(inv[s]||0)<=(p.safe||0)*.5);
   const hasWarn=!hasLow&&stores.some(s=>(inv[s]||0)<=(p.safe||0));
   const showExp=p.cat==='蠟品'||p.cat==='保養品';
-  let expiryBadge='';
+
+  // 效期提醒
+  let expiryBar='';
   if(showExp){
-    const se=stores.map(s=>({store:s,exp:expiry[s]})).filter(x=>x.exp).sort((a,b)=>a.exp.localeCompare(b.exp));
-    if(se.length){const info=getExpiryInfo(se[0].exp);if(info&&info.days<=365){const ms=se.length>1?` (${se[0].store})`:'';expiryBadge=`<div><span class="expiry-badge ${info.cls}">${info.icon} ${info.label}${ms} · ${se[0].exp}</span></div>`;}}
+    const se=stores.map(s=>({s,exp:expiry[s]})).filter(x=>x.exp).sort((a,b)=>a.exp.localeCompare(b.exp));
+    if(se.length){
+      const info=getExpiryInfo(se[0].exp);
+      if(info&&info.days<=365){
+        const ms=stores.length>1&&se.length?` · ${se[0].s}`:'';
+        expiryBar=`<div class="expiry-bar"><span class="expiry-badge ${info.cls}">${info.icon} ${info.label}${ms}</span></div>`;
+      }
+    }
   }
-  const storeQtys=stores.map(s=>{
-    const q=inv[s]||0,qCls=q<=(p.safe||0)*.5?'qty-low':q<=(p.safe||0)?'qty-warn':'qty-ok';
+
+  // 各分店格子
+  const cells=stores.map(s=>{
+    const q=inv[s]||0;
+    const qCls=q<=(p.safe||0)*.5?'qty-low':q<=(p.safe||0)?'qty-warn':'qty-ok';
     const ei=expiry[s]?getExpiryInfo(expiry[s]):null;
-    const expLine=ei&&ei.days<=365?`<div class="store-expiry" style="color:${ei.days<0?'var(--danger)':ei.days<=180?'#e07a2a':'var(--warn)'}">${ei.icon} ${expiry[s]}</div>`:'';
-    return `<div class="store-qty"><div class="store-name">${s}</div><div class="qty-val ${qCls}">${q}</div><div class="qty-safe">安全: ${p.safe||0}</div>${expLine}</div>`;
+    const expLine=ei&&ei.days<=365
+      ?`<div class="store-cell-exp" style="color:${ei.days<0?'var(--danger)':ei.days<=180?'#e07a2a':'var(--warn)'}">${ei.icon} ${expiry[s]}</div>`:'';
+    return `<div class="store-cell">
+      <div class="store-cell-name">${s}</div>
+      <div class="store-cell-qty ${qCls}">${q}</div>
+      <div class="store-cell-safe">安全 ${p.safe||0}</div>
+      ${expLine}
+    </div>`;
   }).join('');
-  const sub=p.subcat?`<span class="subcat-label">${p.subcat}</span>`:'';
-  const expBtn=showExp?`<button class="btn-sm" style="background:#1a1f28;color:#4ab8d4;border:1px solid #1e3040;flex:0 0 auto;padding:8px 10px" onclick="openUpdateExpiry('${p.id}','${p.name.replace(/'/g,"&#39;")}')">🗓️</button>`:'';
+
+  const sub=p.subcat?`<span class="subcat-pill">${p.subcat}</span>`:'';
+  const expBtn=showExp
+    ?`<button class="card-act-btn exp" onclick="openUpdateExpiry('${p.id}','${p.name.replace(/'/g,"&#39;")}')">🗓️</button>`:'';
+
   return `<div class="inv-card ${hasLow?'low':hasWarn?'warn':''}">
-    <div class="inv-card-header"><div class="inv-name">${p.name}${sub}</div><span class="tag ${CAT_CLASS[p.cat]||''}">${p.cat}</span></div>
-    ${expiryBadge}
-    <div class="store-qty-grid">${storeQtys}</div>
-    <div class="card-actions"><button class="btn-sm btn-in" onclick="quickTx('in','${p.id}')">＋ 進貨</button><button class="btn-sm btn-out" onclick="quickTx('out','${p.id}')">－ 出貨</button>${expBtn}</div>
+    <div class="inv-card-top">
+      <div><div class="inv-card-name">${p.name}${sub}</div></div>
+      <span class="tag ${CAT_CLASS[p.cat]||''}">${p.cat}</span>
+    </div>
+    ${expiryBar}
+    <div class="store-grid">${cells}</div>
+    <div class="inv-card-actions">
+      <button class="card-act-btn in" onclick="quickTx('in','${p.id}')">＋ 進貨</button>
+      <button class="card-act-btn out" onclick="quickTx('out','${p.id}')">－ 出貨</button>
+      ${expBtn}
+    </div>
   </div>`;
 }
 
@@ -1352,6 +1380,10 @@ async function boot(){
   if(saved){try{currentUser=JSON.parse(saved);onLoginSuccess();return;}catch(e){localStorage.removeItem('wms_user');}}
   document.getElementById('login-screen').style.display='flex';
 }
+
+// 直接掛在 window 確保 onclick 能呼叫
+window.openBatch=window.openBatch||function(type){console.warn('openBatch not ready');};
+
 boot();
 
 
