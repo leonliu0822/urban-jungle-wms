@@ -276,20 +276,21 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:0
 .batch-search:focus,.batch-sel-store:focus{border-color:var(--accent)}
 .batch-body{flex:1;overflow-y:auto}
 .batch-product-list{padding:0 16px 16px}
-.batch-item{display:flex;align-items:center;gap:12px;padding:14px 0;border-bottom:1px solid var(--border)}
-.batch-stock-info{display:inline-block;font-size:11px;font-weight:700;margin-left:8px;padding:2px 8px;border-radius:8px;background:var(--surface2);vertical-align:middle}
-.batch-stock-info.qty-ok{color:var(--success)}
-.batch-stock-info.qty-warn{color:var(--warn)}
-.batch-stock-info.qty-low{color:var(--danger)}
-.batch-item:last-child{border-bottom:none}
-.batch-item-info{flex:1;min-width:0}
-.batch-item-name{font-weight:700;font-size:15px}
-.batch-item-cat{font-size:11px;color:var(--muted);margin-top:3px}
-.qty-stepper{display:flex;align-items:center;gap:6px}
-.step-btn{width:38px;height:38px;border-radius:10px;border:1.5px solid var(--border);background:var(--surface2);color:var(--text);font-size:22px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-weight:700;transition:all .15s}
+/* batch-row = actual rendered class from JS */
+.batch-row{display:flex;align-items:center;gap:14px;padding:16px 0;border-bottom:1px solid var(--border)}
+.batch-row:last-child{border-bottom:none}
+.br-name{font-weight:700;font-size:15px;margin-bottom:4px}
+.br-stock{display:inline-block;font-size:11px;font-weight:700;margin-left:8px;padding:2px 8px;border-radius:8px;background:var(--surface2);vertical-align:middle}
+.br-stock.qty-ok{color:var(--success)}.br-stock.qty-warn{color:var(--warn)}.br-stock.qty-low{color:var(--danger)}
+.br-tag{font-size:11px;color:var(--muted)}
+.stepper{display:flex;flex-direction:row;align-items:center;gap:8px;flex-shrink:0}
+.step-btn{width:40px;height:40px;border-radius:10px;border:1.5px solid var(--border);background:var(--surface2);color:var(--text);font-size:22px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-weight:700;transition:all .15s;flex-shrink:0}
 .step-btn:active{background:var(--accent);color:#0e0d0b;border-color:var(--accent)}
-.step-input{width:56px;text-align:center;font-family:'Bebas Neue',sans-serif;font-size:24px;color:var(--accent2);background:var(--surface2);border:1.5px solid var(--border);border-radius:8px;padding:4px;outline:none;-webkit-appearance:none;-moz-appearance:textfield}
+.step-input{width:60px;text-align:center;font-family:'Bebas Neue',sans-serif;font-size:26px;color:var(--accent2);background:var(--surface2);border:1.5px solid var(--border);border-radius:8px;padding:6px 4px;outline:none;-webkit-appearance:none;-moz-appearance:textfield;flex-shrink:0}
 .step-input:focus{border-color:var(--accent)}
+/* keep old class names as aliases for safety */
+.batch-item{display:flex;align-items:center;gap:14px;padding:16px 0;border-bottom:1px solid var(--border)}
+.qty-stepper{display:flex;flex-direction:row;align-items:center;gap:8px;flex-shrink:0}
 .batch-footer{background:var(--surface);border-top:1.5px solid var(--border);padding:14px 16px calc(14px + env(safe-area-inset-bottom));flex-shrink:0}
 .batch-summary{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
 .batch-count{font-size:13px;color:var(--muted)}
@@ -318,6 +319,11 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:0
   .bottom-nav .bnav-items{max-width:640px;margin:0 auto}
   .home-stats{grid-template-columns:repeat(4,1fr)}
   .store-grid{grid-template-columns:repeat(4,1fr)}
+  .batch-overlay{align-items:center;background:rgba(0,0,0,.8)}
+  .batch-overlay>div{max-width:680px;width:100%;margin:20px auto;border-radius:16px;overflow:hidden;border:1px solid var(--border);max-height:calc(100vh - 40px)}
+  .batch-product-list{display:grid;grid-template-columns:1fr 1fr;gap:0}
+  .batch-row{border-right:1px solid var(--border);padding:14px 16px}
+  .batch-row:nth-child(even){border-right:none}
 }
 </style>
 </head>
@@ -1217,9 +1223,36 @@ window.setBatchType=function(type){
   document.getElementById('batch-subtype-row').style.display=isIn?'none':'flex';document.getElementById('batch-status-row').style.display=isIn?'none':'flex';
 };
 window.renderBatchList=function(){
+  const bStore=document.getElementById('batch-store')?.value||'台北';
   const search=(document.getElementById('batch-search')?.value||'').toLowerCase();
   const filtered=products.filter(p=>!search||p.name.toLowerCase().includes(search)||p.cat.includes(search));
-  document.getElementById('batch-product-list').innerHTML=filtered.length?filtered.map(p=>{const q=batchQtys[p.id]||0;return `<div class="batch-row"><div style="flex:1;min-width:0"><div class="br-name">${p.name}</div><div class="br-tag"><span class="tag ${CAT_CLASS[p.cat]||''}">${p.cat}</span></div></div><div class="stepper"><button class="step-btn" onclick="batchAdj('${p.id}',-1)">−</button><input class="step-input" type="number" min="0" inputmode="numeric" id="bq-${p.id}" value="${q||''}" placeholder="0" onchange="batchSetQty('${p.id}',this.value)" oninput="batchSetQty('${p.id}',this.value)"><button class="step-btn" onclick="batchAdj('${p.id}',1)">＋</button></div></div>`;}).join(''):'<div class="empty">沒有符合品項</div>';
+  if(!filtered.length){
+    document.getElementById('batch-product-list').innerHTML='<div class="empty-wrap">沒有符合品項</div>';
+    return;
+  }
+  document.getElementById('batch-product-list').innerHTML=filtered.map(p=>{
+    const q=batchQtys[p.id]||0;
+    const storeQty=(p.inventory||{})[bStore]||0;
+    const isOut=batchType==='out';
+    const sqCls=storeQty===0?'qty-low':storeQty<=(p.safe||0)*.5?'qty-low':storeQty<=(p.safe||0)?'qty-warn':'qty-ok';
+    const stockBadge=isOut
+      ?`<span class="br-stock ${sqCls}">庫存 ${storeQty}</span>`
+      :'';
+    return `<div class="batch-row">
+      <div style="flex:1;min-width:0">
+        <div class="br-name">${p.name}${stockBadge}</div>
+        <div class="br-tag"><span class="tag ${CAT_CLASS[p.cat]||''}">${p.cat}</span>${p.subcat?` · ${p.subcat}`:''}</div>
+      </div>
+      <div class="stepper">
+        <button class="step-btn" onclick="batchAdj('${p.id}',-1)">−</button>
+        <input class="step-input" type="number" min="0" inputmode="numeric"
+          id="bq-${p.id}" value="${q||''}" placeholder="0"
+          onchange="batchSetQty('${p.id}',this.value)"
+          oninput="batchSetQty('${p.id}',this.value)">
+        <button class="step-btn" onclick="batchAdj('${p.id}',1)">＋</button>
+      </div>
+    </div>`;
+  }).join('');
 };
 window.batchSetQty=function(pid,val){const n=Math.max(0,parseInt(val)||0);if(n===0)delete batchQtys[pid];else batchQtys[pid]=n;updateBatchSummary();};
 window.batchAdj=function(pid,delta){const cur=batchQtys[pid]||0,n=Math.max(0,cur+delta);if(n===0)delete batchQtys[pid];else batchQtys[pid]=n;const el=document.getElementById('bq-'+pid);if(el)el.value=n||'';updateBatchSummary();};
