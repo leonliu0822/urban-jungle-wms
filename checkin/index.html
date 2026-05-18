@@ -655,10 +655,10 @@ let selectedSchedDate=today(),selectedAdmSchedDate=today();
 let cachedUsers=[],cachedAttendance=[],cachedShifts={};
 
 // ══ 工具 ══
-const pad=n=>String(n).padStart(2,'0');
-const fmt=ts=>{const d=new Date(ts);return pad(d.getHours())+':'+pad(d.getMinutes());};
-const fmtMin=s=>pad(Math.floor(s/60))+':'+pad(s%60);
-const fmtHM=s=>Math.floor(s/3600)+'h '+pad(Math.floor((s%3600)/60))+'m';
+function pad(n){return String(n).padStart(2,'0');}
+function fmt(ts){const d=new Date(ts);return pad(d.getHours())+':'+pad(d.getMinutes());}
+function fmtMin(s){return pad(Math.floor(s/60))+':'+pad(s%60);}
+function fmtHM(s){return Math.floor(s/3600)+'h '+pad(Math.floor((s%3600)/60))+'m';}
 function today(){const d=new Date();return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());}
 
 function toast(msg,type,dur=2500){
