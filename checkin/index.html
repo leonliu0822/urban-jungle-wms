@@ -499,10 +499,10 @@ select.inp{cursor:pointer}
     <span class="sync-time" id="admSyncTime"></span>
   </div>
   <div class="admin-tabs">
-    <button class="adm-tab active" onclick="switchAdminTab('overview',this)">總覽</button>
-    <button class="adm-tab" onclick="switchAdminTab('journal',this)">日誌總覽</button>
-    <button class="adm-tab" onclick="switchAdminTab('history',this)">出勤</button>
-    <button class="adm-tab" onclick="switchAdminTab('users',this)">帳號</button>
+    <button class="adm-tab active" onclick="switchAdminTab('overview',this)">狀態總覽</button>
+    <button class="adm-tab" onclick="switchAdminTab('journal',this)">工作日誌</button>
+    <button class="adm-tab" onclick="switchAdminTab('history',this)">出勤匯出</button>
+    <button class="adm-tab" onclick="switchAdminTab('users',this)">帳號設定</button>
   </div>
   <!-- 總覽 -->
   <div class="admin-page active" id="adm-overview">
@@ -701,15 +701,16 @@ async function fbGetUsers(){
   try{
     setSyncStatus('syncing','同步帳號資料…');
     const snap=await db.collection('checkin_users').get();
-    if(snap.empty){
-      // 初次使用，寫入預設帳號
-      for(const u of DEFAULT_USERS){
+    const cloudUsers=snap.docs.map(d=>d.data());
+    const cloudIds=new Set(cloudUsers.map(u=>u.id));
+    // 補寫雲端缺少的預設帳號
+    for(const u of DEFAULT_USERS){
+      if(!cloudIds.has(u.id)){
         await db.collection('checkin_users').doc(u.id).set(u);
+        cloudUsers.push(u);
       }
-      cachedUsers=[...DEFAULT_USERS];
-    } else {
-      cachedUsers=snap.docs.map(d=>d.data());
     }
+    cachedUsers=cloudUsers;
     setSyncOK(); return cachedUsers;
   }catch(e){setSyncErr();return DEFAULT_USERS;}
 }
@@ -1045,10 +1046,11 @@ async function renderJournalDay(d){
   el.innerHTML = '<div class="log-row log-empty" style="border-radius:14px;background:var(--white);">載入中…</div>';
   try{
     const snap = await db.collection('checkin_journal')
-      .where('userId','==',CUR.user.id)
       .where('date','==',d)
       .get();
-    const entries = snap.docs.map(doc=>({id:doc.id,...doc.data()})).sort((a,b)=>a.createdAt.localeCompare(b.createdAt));
+    let entries = snap.docs.map(doc=>({id:doc.id,...doc.data()}))
+      .filter(e=>e.userId===CUR.user.id)
+      .sort((a,b)=>(a.createdAt||'').localeCompare(b.createdAt||''));
     if(!entries.length){
       el.innerHTML='<div class="log-row log-empty" style="border-radius:14px;background:var(--white);border:1.5px dashed var(--cream-dim)">今日尚未填寫日誌</div>';
       return;
@@ -1199,11 +1201,14 @@ async function loadAdmJournal(){
   const el=document.getElementById('admJournalContent');
   el.innerHTML='<div class="hist-empty"><div style="font-size:24px">⏳</div>載入中…</div>';
   try{
-    let q=db.collection('checkin_journal').where('date','==',date);
-    if(store) q=q.where('store','==',store);
-    if(userId) q=q.where('userId','==',userId);
-    const snap=await q.get();
-    const entries=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(a.store+a.userName+a.createdAt).localeCompare(b.store+b.userName+b.createdAt));
+    // 只用 date 單一條件查詢，避免 Firestore 複合索引需求
+    const snap=await db.collection('checkin_journal').where('date','==',date).get();
+    let entries=snap.docs.map(d=>({id:d.id,...d.data()}));
+    // 前端過濾門市和夥伴
+    if(store) entries=entries.filter(e=>e.store===store);
+    if(userId) entries=entries.filter(e=>e.userId===userId);
+    // 前端排序：依門市 → 夥伴 → 時間
+    entries.sort((a,b)=>(a.store+a.userName+(a.createdAt||'')).localeCompare(b.store+b.userName+(b.createdAt||'')));
     if(!entries.length){
       el.innerHTML='<div class="hist-empty"><div>📓</div>這天沒有日誌紀錄</div>'; return;
     }
