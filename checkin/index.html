@@ -216,7 +216,6 @@ select.inp{cursor:pointer}
 .hist-table tr:last-child td{border-bottom:none}
 .bk-ok{display:inline-block;background:#e8f5ee;color:var(--green);font-size:9px;font-weight:700;padding:2px 7px;border-radius:99px}
 .bk-short{display:inline-block;background:#fde8e8;color:var(--red);font-size:9px;font-weight:700;padding:2px 7px;border-radius:99px}
-.bk-ot{display:inline-block;background:#fdf3de;color:var(--amber);font-size:9px;font-weight:700;padding:2px 7px;border-radius:99px}
 .hist-empty{text-align:center;padding:40px 20px;color:var(--text-soft);font-size:13px}
 .hist-empty div{font-size:32px;margin-bottom:10px}
 
@@ -338,7 +337,7 @@ select.inp{cursor:pointer}
     <div class="lfield"><label>帳號</label><input type="text" id="loginUser" placeholder="輸入你的帳號" autocapitalize="off"></div>
     <div class="lfield"><label>密碼</label><input type="password" id="loginPass" placeholder="輸入你的密碼"></div>
     <button class="btn-login" id="btnLogin" onclick="doLogin()">登入</button>
-    <div class="login-hint">首次使用請聯絡管理者取得帳號<br><b>管理者：admin / admin123</b></div>
+    <div class="login-hint">首次使用請聯絡管理者取得帳號</div>
   </div>
 </div>
 
@@ -470,8 +469,7 @@ select.inp{cursor:pointer}
     <div class="summary-cards">
       <div class="sum-card"><div class="sum-val" id="sumDays">0</div><div class="sum-lbl">出勤天數</div></div>
       <div class="sum-card"><div class="sum-val" id="sumHours">0h</div><div class="sum-lbl">總工時</div></div>
-      <div class="sum-card"><div class="sum-val" id="sumOT">0h</div><div class="sum-lbl">超時累計</div></div>
-      <div class="sum-card"><div class="sum-val" id="sumShort">0</div><div class="sum-lbl">不足 8h</div></div>
+      <div class="sum-card"><div class="sum-val" id="sumShort">0</div><div class="sum-lbl">不足 8h 天數</div></div>
     </div>
     <div class="filter-row">
       <input type="date" class="filter-inp" id="hFrom">
@@ -1049,9 +1047,8 @@ async function renderJournalDay(d){
     const snap = await db.collection('checkin_journal')
       .where('userId','==',CUR.user.id)
       .where('date','==',d)
-      .orderBy('createdAt','asc')
       .get();
-    const entries = snap.docs.map(doc=>({id:doc.id,...doc.data()}));
+    const entries = snap.docs.map(doc=>({id:doc.id,...doc.data()})).sort((a,b)=>a.createdAt.localeCompare(b.createdAt));
     if(!entries.length){
       el.innerHTML='<div class="log-row log-empty" style="border-radius:14px;background:var(--white);border:1.5px dashed var(--cream-dim)">今日尚未填寫日誌</div>';
       return;
@@ -1135,15 +1132,13 @@ async function loadMyHistory(){
   const to=document.getElementById('hTo').value;
   const data=await fbGetAttendance({userId:CUR.user.id,from,to});
   const totalSec=data.reduce((s,r)=>s+r.workSec,0);
-  const totalOT=data.reduce((s,r)=>s+r.overtime,0);
   document.getElementById('sumDays').textContent=data.length;
   document.getElementById('sumHours').textContent=fmtHM(totalSec);
-  document.getElementById('sumOT').textContent=fmtHM(totalOT);
   document.getElementById('sumShort').textContent=data.filter(r=>r.shortage>0).length;
   const el=document.getElementById('histContent');
   if(!data.length){el.innerHTML='<div class="hist-empty"><div>🔍</div>此區間沒有紀錄</div>';return;}
   el.innerHTML='<table class="hist-table"><thead><tr><th>日期</th><th>到店</th><th>離店</th><th>工時</th><th>狀態</th></tr></thead><tbody>'+
-    data.map(r=>{let b=r.overtime>0?'<span class="bk-ot">超時</span>':r.shortage>0?'<span class="bk-short">不足</span>':'<span class="bk-ok">正常</span>';
+    data.map(r=>{let b=r.shortage>0?'<span class="bk-short">不足</span>':'<span class="bk-ok">正常</span>';
     return `<tr><td>${r.date}</td><td>${r.checkin}</td><td>${r.checkout}</td><td>${fmtHM(r.workSec)}</td><td>${b}</td></tr>`;}).join('')+'</tbody></table>';
 }
 function exportMyCSV(){
@@ -1165,8 +1160,7 @@ async function renderAdmOverview(){
   document.getElementById('admStats').innerHTML=`
     <div class="adm-stat"><div class="adm-stat-val">${filtered.length}</div><div class="adm-stat-lbl">夥伴總數</div></div>
     <div class="adm-stat"><div class="adm-stat-val">${todayIn.length}</div><div class="adm-stat-lbl">今日已打卡</div></div>
-    <div class="adm-stat"><div class="adm-stat-val">${filtered.length-todayIn.length}</div><div class="adm-stat-lbl">今日未打卡</div></div>
-    <div class="adm-stat"><div class="adm-stat-val">${todayIn.filter(r=>r.overtime>0).length}</div><div class="adm-stat-lbl">今日超時</div></div>`;
+    <div class="adm-stat"><div class="adm-stat-val">${filtered.length-todayIn.length}</div><div class="adm-stat-lbl">今日未打卡</div></div>`;
   const stores=storeFilter?[{n:storeFilter,em:STORE_EM[storeFilter]}]:[{n:'台北店',em:'🏙'},{n:'新竹店',em:'🌲'},{n:'台中店',em:'🌿'},{n:'高雄店',em:'🌴'}];
   document.getElementById('admMembersWrap').innerHTML=stores.map(store=>{
     const su=users.filter(u=>u.store===store.n);if(!su.length)return '';
@@ -1208,9 +1202,8 @@ async function loadAdmJournal(){
     let q=db.collection('checkin_journal').where('date','==',date);
     if(store) q=q.where('store','==',store);
     if(userId) q=q.where('userId','==',userId);
-    q=q.orderBy('createdAt','asc');
     const snap=await q.get();
-    const entries=snap.docs.map(d=>({id:d.id,...d.data()}));
+    const entries=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(a.store+a.userName+a.createdAt).localeCompare(b.store+b.userName+b.createdAt));
     if(!entries.length){
       el.innerHTML='<div class="hist-empty"><div>📓</div>這天沒有日誌紀錄</div>'; return;
     }
@@ -1278,7 +1271,7 @@ async function loadAdmHistory(){
   const el=document.getElementById('admHistContent');
   if(!data.length){el.innerHTML='<div class="hist-empty"><div>🔍</div>此條件沒有紀錄</div>';return;}
   el.innerHTML='<div style="overflow-x:auto"><table class="hist-table"><thead><tr><th>日期</th><th>門市</th><th>夥伴</th><th>到店</th><th>離店</th><th>工時</th><th>狀態</th></tr></thead><tbody>'+
-    data.map(r=>{let b=r.overtime>0?'<span class="bk-ot">超時</span>':r.shortage>0?'<span class="bk-short">不足</span>':'<span class="bk-ok">正常</span>';
+    data.map(r=>{let b=r.shortage>0?'<span class="bk-short">不足</span>':'<span class="bk-ok">正常</span>';
     return `<tr><td>${r.date}</td><td>${r.store}</td><td>${r.userName}</td><td>${r.checkin}</td><td>${r.checkout}</td><td>${fmtHM(r.workSec)}</td><td>${b}</td></tr>`;}).join('')+'</tbody></table></div>';
   cachedAttendance=data;
 }
