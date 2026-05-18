@@ -109,10 +109,7 @@ body{font-family:var(--sans);background:var(--moss-dark);min-height:100vh;min-he
 .prog-marks{display:flex;justify-content:space-between;font-size:9px;color:var(--text-soft);margin-top:4px;font-family:var(--mono)}
 
 /* ── OT / BREAK ── */
-.ot-chip{display:none;background:linear-gradient(135deg,#fdf3de,#fffdf7);border:1.5px solid var(--gold);border-radius:var(--r);padding:10px 14px;margin-bottom:14px;align-items:center;gap:10px}
-.ot-chip.show{display:flex}
-.ot-main{font-size:13px;font-weight:700;color:var(--gold-dim)}
-.ot-sub{font-size:10px;color:var(--amber);margin-top:1px}
+
 .break-box{display:none;background:#fdf8ee;border:2px solid var(--gold);border-radius:var(--r);padding:14px;margin-bottom:14px;align-items:center;gap:12px}
 .break-box.show{display:flex}
 .break-count{font-family:var(--mono);font-size:28px;color:var(--gold-dim);font-weight:500}
@@ -373,8 +370,7 @@ select.inp{cursor:pointer}
   </div>
   <div class="app-tabs">
     <button class="atab active" onclick="switchTab('checkin',this)">打卡</button>
-    <button class="atab" onclick="switchTab('journal',this)">日誌</button>
-    <button class="atab" onclick="switchTab('schedule',this)">班表</button>
+    <button class="atab" onclick="switchTab('weekly',this)">本週日誌</button>
     <button class="atab" onclick="switchTab('history',this)">紀錄</button>
   </div>
 
@@ -395,7 +391,6 @@ select.inp{cursor:pointer}
       <div class="prog-track"><div class="prog-fill" id="progFill" style="width:0%"></div></div>
       <div class="prog-marks"><span>0h</span><span>2h</span><span>4h</span><span>6h</span><span>8h</span></div>
     </div>
-    <div class="ot-chip" id="otChip"><div style="font-size:20px">⏱️</div><div><div class="ot-main" id="otMain">超時 0h 0m</div><div class="ot-sub">可抵扣至其他日（上限 2h）</div></div></div>
     <div class="break-box" id="breakBox">
       <div style="flex:1">
         <div class="break-count" id="breakCount">60:00</div>
@@ -414,44 +409,56 @@ select.inp{cursor:pointer}
     <div class="log-list" id="logList"><div class="log-row log-empty">尚無打卡紀錄</div></div>
   </div>
 
-  <!-- 工作日誌頁 -->
-  <div class="apage" id="page-journal">
+  <!-- 本週日誌頁 -->
+  <div class="apage" id="page-weekly">
     <div class="date-hero" style="margin-bottom:14px">
-      <div class="dh-tag">Work Journal</div>
-      <div class="dh-date" id="jDate">—</div>
-      <div class="dh-dow" id="jStore">—</div>
+      <div class="dh-tag">Weekly Journal</div>
+      <div class="dh-date" id="weeklyTitle">本週工作日誌</div>
+      <div class="dh-dow" id="weeklyStoreName">—</div>
     </div>
-    <div class="task-form">
-      <div class="form-row"><input class="inp" id="taskTitle" placeholder="任務名稱…"></div>
-      <div class="form-row">
-        <select class="inp" id="taskCat" style="flex:1.2">
-          <option value="接待">接待服務</option><option value="清潔">環境清潔</option>
-          <option value="備料">備料補貨</option><option value="行政">行政作業</option>
-          <option value="培訓">培訓學習</option><option value="顧客">顧客回饋</option>
-          <option value="其他">其他</option>
-        </select>
-        <select class="inp" id="taskPri" style="flex:.8">
-          <option value="high">🔴 高</option>
-          <option value="mid" selected>🟡 中</option>
-          <option value="low">🟢 低</option>
-        </select>
-      </div>
-      <div class="form-row"><button class="btn-add" onclick="addTask()">＋ 新增</button></div>
-    </div>
-    <div class="sect-title">今日任務</div>
-    <div class="tasks-list" id="tasksList"><div class="log-row log-empty" style="border-radius:14px;background:var(--white);border:1.5px dashed var(--cream-dim)">尚未安排任務</div></div>
-  </div>
 
-  <!-- 班表頁 -->
-  <div class="apage" id="page-schedule">
-    <div class="date-hero" style="margin-bottom:14px">
-      <div class="dh-tag">Schedule</div>
-      <div class="dh-date" id="schedMonth">—</div>
-      <div class="dh-dow" id="schedStoreName">—</div>
+    <!-- 週曆選擇器 -->
+    <div class="sched-week" id="weeklyDayPicker"></div>
+
+    <!-- 選中日期標題 -->
+    <div class="sect-title" id="weeklyDayLabel">今日日誌</div>
+
+    <!-- 新增日誌區塊（只有選中日才顯示輸入） -->
+    <div id="weeklyInputArea">
+      <div class="task-form" id="weeklyForm">
+        <div class="form-row">
+          <input class="inp" id="journalTitle" placeholder="工作項目或事項描述…">
+        </div>
+        <div class="form-row">
+          <select class="inp" id="journalCat" style="flex:1.2">
+            <option value="接待">接待服務</option>
+            <option value="清潔">環境清潔</option>
+            <option value="備料">備料補貨</option>
+            <option value="行政">行政作業</option>
+            <option value="培訓">培訓學習</option>
+            <option value="顧客">顧客回饋</option>
+            <option value="問題">問題記錄</option>
+            <option value="其他">其他</option>
+          </select>
+          <select class="inp" id="journalStatus" style="flex:.8">
+            <option value="done">✅ 完成</option>
+            <option value="progress">🔄 進行中</option>
+            <option value="pending">⏳ 待處理</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <input class="inp" id="journalNote" placeholder="備注（可選）…">
+        </div>
+        <div class="form-row">
+          <button class="btn-add" onclick="addJournalEntry()">＋ 新增</button>
+        </div>
+      </div>
     </div>
-    <div class="sched-week" id="schedWeek"></div>
-    <div class="sect-title" id="schedDayLabel">今日班表</div>
-    <div id="schedContent"></div>
+
+    <!-- 日誌內容 -->
+    <div class="tasks-list" id="weeklyEntriesList">
+      <div class="log-row log-empty" style="border-radius:14px;background:var(--white);border:1.5px dashed var(--cream-dim)">今日尚未填寫日誌</div>
+    </div>
   </div>
 
   <!-- 歷史紀錄頁 -->
@@ -495,7 +502,7 @@ select.inp{cursor:pointer}
   </div>
   <div class="admin-tabs">
     <button class="adm-tab active" onclick="switchAdminTab('overview',this)">總覽</button>
-    <button class="adm-tab" onclick="switchAdminTab('schedule',this)">排班</button>
+    <button class="adm-tab" onclick="switchAdminTab('journal',this)">日誌總覽</button>
     <button class="adm-tab" onclick="switchAdminTab('history',this)">出勤</button>
     <button class="adm-tab" onclick="switchAdminTab('users',this)">帳號</button>
   </div>
@@ -512,18 +519,23 @@ select.inp{cursor:pointer}
     </div>
     <div id="admMembersWrap"></div>
   </div>
-  <!-- 排班 -->
-  <div class="admin-page" id="adm-schedule">
-    <div class="filter-row" style="margin-bottom:14px">
-      <select class="filter-inp" id="admSchedStore" onchange="renderAdmSchedContent()">
-        <option value="台北店">🏙 台北店</option><option value="新竹店">🌲 新竹店</option>
-        <option value="台中店">🌿 台中店</option><option value="高雄店">🌴 高雄店</option>
+  <!-- 日誌總覽 -->
+  <div class="admin-page" id="adm-journal">
+    <div class="filter-row" style="margin-bottom:10px">
+      <select class="filter-inp" id="admJournalStore" onchange="loadAdmJournal()">
+        <option value="">全部門市</option>
+        <option value="台北店">🏙 台北店</option>
+        <option value="新竹店">🌲 新竹店</option>
+        <option value="台中店">🌿 台中店</option>
+        <option value="高雄店">🌴 高雄店</option>
       </select>
+      <select class="filter-inp" id="admJournalUser"><option value="">全部夥伴</option></select>
     </div>
-    <div class="adm-sched-day" id="admSchedDays"></div>
-    <div class="sect-title" id="admSchedDayLabel">—</div>
-    <div id="admSchedContent"></div>
-    <button class="btn-add-shift" onclick="openAddShift()">＋ 新增班次</button>
+    <div class="filter-row">
+      <input type="date" class="filter-inp" id="admJournalDate">
+      <button class="btn-qry" onclick="loadAdmJournal()">🔍 查詢</button>
+    </div>
+    <div id="admJournalContent"><div class="hist-empty"><div>📓</div>選擇條件後按查詢</div></div>
   </div>
   <!-- 出勤 -->
   <div class="admin-page" id="adm-history">
@@ -833,9 +845,10 @@ async function enterAdmin(user){
   showScreen('s-admin');
   await renderAdmOverview();
   renderAdmUsers();
-  renderAdmSchedDays();
   populateAdmHistUser();
+  populateAdmJournalUser();
   initAdmHistDates();
+  document.getElementById('admJournalDate').value=today();
 }
 
 // ══ Wi-Fi ══
@@ -856,7 +869,7 @@ function switchTab(id,btn){
   document.querySelectorAll('.atab').forEach(b=>b.classList.remove('active'));
   document.getElementById('page-'+id).classList.add('active');
   btn.classList.add('active');
-  if(id==='schedule') renderSchedule();
+  if(id==='weekly') renderWeeklyJournal();
   if(id==='history'){initFilterDates();loadMyHistory();}
 }
 function switchAdminTab(id,btn){
@@ -866,7 +879,7 @@ function switchAdminTab(id,btn){
   btn.classList.add('active');
   if(id==='overview') renderAdmOverview();
   if(id==='users') renderAdmUsers();
-  if(id==='schedule') renderAdmSchedDays();
+  if(id==='journal'){document.getElementById('admJournalDate').value=today();loadAdmJournal();}
 }
 
 // ══ 日期 ══
@@ -901,12 +914,6 @@ function updateProg(){
   const h=Math.floor(S.workSec/3600),m=Math.floor((S.workSec%3600)/60);
   document.getElementById('progFill').style.width=Math.min(S.workSec/28800*100,100)+'%';
   document.getElementById('progLabel').textContent=h+'h '+pad(m)+'m / 8h';
-  if(S.workSec>28800){
-    document.getElementById('progFill').classList.add('over');
-    const ov=S.workSec-28800,cap=Math.min(ov,7200);
-    document.getElementById('otChip').classList.add('show');
-    document.getElementById('otMain').textContent='超時 '+Math.floor(ov/3600)+'h'+pad(Math.floor((ov%3600)/60))+'m｜可抵 '+Math.floor(cap/3600)+'h'+pad(Math.floor((cap%3600)/60))+'m';
-  }
 }
 function doBreak(){
   if(!needWifi())return;
@@ -996,52 +1003,126 @@ function renderTasks(){
   </div>`).join('');
 }
 
-// ══ 班表（夥伴） ══
+// ══ 週工具函式 ══
 function getWeekDays(ref){
   const d=new Date(ref),dow=d.getDay();
   const mon=new Date(d);mon.setDate(d.getDate()-(dow===0?6:dow-1));
   return Array.from({length:7},(_,i)=>{const x=new Date(mon);x.setDate(mon.getDate()+i);return x.getFullYear()+'-'+pad(x.getMonth()+1)+'-'+pad(x.getDate());});
 }
-async function renderSchedule(){
-  if(!CUR.user)return;
-  const days=getWeekDays(today());
+
+// ══ 本週工作日誌 ══
+let selectedJournalDate = today();
+
+function renderWeeklyJournal(){
+  if(!CUR.user) return;
+  const days = getWeekDays(today());
   const M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const now=new Date();
-  document.getElementById('schedMonth').textContent=M[now.getMonth()]+' '+now.getFullYear();
-  document.getElementById('schedStoreName').textContent=(STORE_EM[CUR.user.store]||'')+' '+CUR.user.store+' 班表';
-  const shifts=await fbGetShifts(days);
+  const now = new Date();
+  document.getElementById('weeklyTitle').textContent = M[now.getMonth()]+' '+now.getFullYear()+' 工作日誌';
+  document.getElementById('weeklyStoreName').textContent = (STORE_EM[CUR.user.store]||'')+' '+CUR.user.store+' · '+CUR.user.name;
   const dowN=['一','二','三','四','五','六','日'];
-  const todayStr=today();
-  document.getElementById('schedWeek').innerHTML=days.map((d,i)=>{
-    const dn=new Date(d).getDate();
-    const hasShift=(shifts[d]||[]).some(s=>s.userId===CUR.user.id);
-    return `<div class="sday${d===todayStr?' today':''}${hasShift?' has-shift':''}" onclick="selectSchedDay('${d}')">
-      <div class="sday-dow">${dowN[i]}</div><div class="sday-num">${dn}</div></div>`;
+  const todayStr = today();
+  document.getElementById('weeklyDayPicker').innerHTML = days.map((d,i)=>{
+    const dn = new Date(d).getDate();
+    const isToday = d===todayStr;
+    const isSel = d===selectedJournalDate;
+    return `<div class="sday${isToday?' today':''}${isSel?' today':''}" onclick="selectJournalDay('${d}')" style="${isSel&&!isToday?'border-color:var(--gold-dim);background:var(--moss);':''}">
+      <div class="sday-dow" style="${isSel&&!isToday?'color:var(--gold-pale);':''}">${dowN[i]}</div>
+      <div class="sday-num" style="${isSel&&!isToday?'color:var(--gold-pale);':''}">${dn}</div>
+    </div>`;
   }).join('');
-  renderSchedContent(selectedSchedDate,shifts);
+  renderJournalDay(selectedJournalDate);
 }
-function selectSchedDay(d){
-  selectedSchedDate=d;
-  const p=d.split('-'),M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  document.getElementById('schedDayLabel').textContent=M[parseInt(p[1])-1]+' '+parseInt(p[2])+' 班表';
-  renderSchedContent(d,cachedShifts);
+
+function selectJournalDay(d){
+  selectedJournalDate = d;
+  renderWeeklyJournal();
+  const parts = d.split('-');
+  const M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  document.getElementById('weeklyDayLabel').textContent = M[parseInt(parts[1])-1]+' '+parseInt(parts[2])+' 日誌';
 }
-function renderSchedContent(d,shifts){
-  const el=document.getElementById('schedContent');
-  const dayShifts=(shifts[d]||[]).filter(s=>s.store===CUR.user.store);
-  if(!dayShifts.length){el.innerHTML='<div class="shift-card"><div class="shift-empty"><div class="shift-empty-icon">📅</div>這天尚未排班</div></div>';return;}
-  el.innerHTML='<div class="shift-card">'+dayShifts.map(s=>{
-    const u=cachedUsers.find(u=>u.id===s.userId)||{name:s.userId,id:s.userId};
-    const st=SHIFT_TYPES[s.type]||SHIFT_TYPES.full;
-    const isMe=u.id===CUR.user.id;
-    return `<div class="shift-row"><div class="shift-avatar">${u.name[0]}</div>
-      <div><div class="shift-name">${u.name}${isMe?'<span class="my-badge">我</span>':''}</div>
-      <div class="shift-time">${st.time}</div></div>
-      <span class="shift-badge ${st.cls}">${st.label}</span></div>`;
-  }).join('')+'</div>';
+
+async function renderJournalDay(d){
+  const el = document.getElementById('weeklyEntriesList');
+  el.innerHTML = '<div class="log-row log-empty" style="border-radius:14px;background:var(--white);">載入中…</div>';
+  try{
+    const snap = await db.collection('checkin_journal')
+      .where('userId','==',CUR.user.id)
+      .where('date','==',d)
+      .orderBy('createdAt','asc')
+      .get();
+    const entries = snap.docs.map(doc=>({id:doc.id,...doc.data()}));
+    if(!entries.length){
+      el.innerHTML='<div class="log-row log-empty" style="border-radius:14px;background:var(--white);border:1.5px dashed var(--cream-dim)">今日尚未填寫日誌</div>';
+      return;
+    }
+    const STATUS_ICON = {done:'✅',progress:'🔄',pending:'⏳'};
+    const STATUS_LABEL = {done:'完成',progress:'進行中',pending:'待處理'};
+    const STATUS_CLS = {done:'pri-low',progress:'pri-mid',pending:'pri-high'};
+    el.innerHTML = entries.map(e=>`
+      <div class="task-card">
+        <div class="task-header">
+          <div class="task-body">
+            <div class="task-title">${e.title}</div>
+            <div class="task-meta">
+              <span class="task-cat">${e.cat}</span>
+              <span class="pri ${STATUS_CLS[e.status]||'pri-mid'}">${STATUS_ICON[e.status]||'🔄'} ${STATUS_LABEL[e.status]||'進行中'}</span>
+              <span style="font-size:10px;color:var(--text-soft);font-family:var(--mono)">${e.time||''}</span>
+            </div>
+            ${e.note?`<div class="task-note-txt">${e.note}</div>`:''}
+          </div>
+        </div>
+        <div class="task-actions">
+          <button class="btn-del-task" onclick="deleteJournalEntry('${e.id}')">刪除</button>
+        </div>
+      </div>`).join('');
+  }catch(err){
+    el.innerHTML='<div class="log-row log-empty" style="border-radius:14px;background:var(--white);">載入失敗，請重試</div>';
+  }
+}
+
+async function addJournalEntry(){
+  const title = document.getElementById('journalTitle').value.trim();
+  if(!title){toast('請輸入工作項目','err');return;}
+  if(!CUR.user){toast('請先登入','err');return;}
+  const now = new Date();
+  const entry = {
+    userId: CUR.user.id,
+    userName: CUR.user.name,
+    store: CUR.user.store,
+    date: selectedJournalDate,
+    title,
+    cat: document.getElementById('journalCat').value,
+    status: document.getElementById('journalStatus').value,
+    note: document.getElementById('journalNote').value.trim(),
+    time: pad(now.getHours())+':'+pad(now.getMinutes()),
+    createdAt: new Date().toISOString(),
+  };
+  try{
+    setSyncStatus('syncing','日誌上傳中…');
+    await db.collection('checkin_journal').add(entry);
+    document.getElementById('journalTitle').value='';
+    document.getElementById('journalNote').value='';
+    setSyncOK();
+    toast('✅ 日誌已儲存至雲端');
+    renderJournalDay(selectedJournalDate);
+  }catch(e){
+    setSyncErr();
+    toast('上傳失敗，請確認網路連線','err');
+  }
+}
+
+async function deleteJournalEntry(id){
+  if(!confirm('確定刪除這筆日誌？')) return;
+  try{
+    await db.collection('checkin_journal').doc(id).delete();
+    toast('日誌已刪除');
+    renderJournalDay(selectedJournalDate);
+  }catch(e){ toast('刪除失敗','err'); }
 }
 
 // ══ 個人歷史 ══
+
 function initFilterDates(){
   const t=today(),d=new Date();d.setDate(d.getDate()-30);
   const from=d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
@@ -1108,62 +1189,75 @@ async function renderAdmOverview(){
   }).join('');
 }
 
-// admin 排班
-async function renderAdmSchedDays(){
-  const days=getWeekDays(today());
-  const dowN=['一','二','三','四','五','六','日'];
-  document.getElementById('admSchedDays').innerHTML=days.map((d,i)=>`<button class="adm-day-btn${d===selectedAdmSchedDate?' active':''}" onclick="selectAdmSchedDay('${d}')">${dowN[i]} ${new Date(d).getDate()}</button>`).join('');
-  await renderAdmSchedContent();
+// admin 日誌總覽
+function populateAdmJournalUser(){
+  const users=cachedUsers.filter(u=>u.role!=='admin');
+  const el=document.getElementById('admJournalUser');
+  if(!el) return;
+  el.innerHTML='<option value="">全部夥伴</option>'+
+    users.map(u=>`<option value="${u.id}">${u.name}（${u.store}）</option>`).join('');
 }
-async function selectAdmSchedDay(d){
-  selectedAdmSchedDate=d;
-  document.querySelectorAll('.adm-day-btn').forEach(b=>b.classList.remove('active'));
-  event.target.classList.add('active');
-  await renderAdmSchedContent();
+
+async function loadAdmJournal(){
+  const store=document.getElementById('admJournalStore').value;
+  const userId=document.getElementById('admJournalUser').value;
+  const date=document.getElementById('admJournalDate').value||today();
+  const el=document.getElementById('admJournalContent');
+  el.innerHTML='<div class="hist-empty"><div style="font-size:24px">⏳</div>載入中…</div>';
+  try{
+    let q=db.collection('checkin_journal').where('date','==',date);
+    if(store) q=q.where('store','==',store);
+    if(userId) q=q.where('userId','==',userId);
+    q=q.orderBy('createdAt','asc');
+    const snap=await q.get();
+    const entries=snap.docs.map(d=>({id:d.id,...d.data()}));
+    if(!entries.length){
+      el.innerHTML='<div class="hist-empty"><div>📓</div>這天沒有日誌紀錄</div>'; return;
+    }
+    // 依門市和夥伴分組
+    const groups={};
+    entries.forEach(e=>{
+      const key=e.store+'__'+e.userId+'__'+e.userName;
+      if(!groups[key]) groups[key]={store:e.store,userName:e.userName,entries:[]};
+      groups[key].entries.push(e);
+    });
+    const STATUS_ICON={done:'✅',progress:'🔄',pending:'⏳'};
+    const STATUS_LABEL={done:'完成',progress:'進行中',pending:'待處理'};
+    const STATUS_CLS={done:'pri-low',progress:'pri-mid',pending:'pri-high'};
+    const M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const dp=date.split('-');
+    el.innerHTML=`<div style="font-family:var(--serif);font-size:16px;color:var(--moss-dark);margin-bottom:14px">${M[parseInt(dp[1])-1]} ${parseInt(dp[2])} 日誌總覽</div>`+
+      Object.values(groups).map(g=>`
+        <div class="adm-member-row" style="margin-bottom:12px">
+          <div class="amr-top" style="margin-bottom:10px">
+            <div class="amr-av">${g.userName[0]}</div>
+            <div>
+              <div class="amr-name">${g.userName}</div>
+              <div class="amr-store">${STORE_EM[g.store]||''} ${g.store} · ${g.entries.length} 筆紀錄</div>
+            </div>
+          </div>
+          ${g.entries.map(e=>`
+            <div style="display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-top:1px solid var(--cream-dim)">
+              <span style="font-size:16px;flex-shrink:0">${STATUS_ICON[e.status]||'🔄'}</span>
+              <div style="flex:1">
+                <div style="font-size:13px;font-weight:700;color:var(--text)">${e.title}</div>
+                <div style="display:flex;gap:6px;margin-top:3px;flex-wrap:wrap">
+                  <span class="task-cat">${e.cat}</span>
+                  <span class="pri ${STATUS_CLS[e.status]||'pri-mid'}">${STATUS_LABEL[e.status]||'進行中'}</span>
+                  <span style="font-size:10px;color:var(--text-soft);font-family:var(--mono)">${e.time||''}</span>
+                </div>
+                ${e.note?`<div style="font-size:11px;color:var(--text-soft);margin-top:4px">${e.note}</div>`:''}
+              </div>
+            </div>`).join('')}
+        </div>`).join('');
+  }catch(err){
+    el.innerHTML='<div class="hist-empty"><div>⚠️</div>載入失敗，請重試</div>';
+    console.error(err);
+  }
 }
-async function renderAdmSchedContent(){
-  const store=document.getElementById('admSchedStore').value;
-  const p=selectedAdmSchedDate.split('-'),M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  document.getElementById('admSchedDayLabel').textContent=M[parseInt(p[1])-1]+' '+parseInt(p[2])+' 排班';
-  const shifts=await fbGetShifts([selectedAdmSchedDate]);
-  const dayShifts=(shifts[selectedAdmSchedDate]||[]).filter(s=>s.store===store);
-  const users=cachedUsers.filter(u=>u.store===store&&(u.role==='staff'||u.role==='manager'));
-  const el=document.getElementById('admSchedContent');
-  if(!dayShifts.length){el.innerHTML='<div class="adm-shift-card"><div class="shift-empty" style="padding:20px"><div class="shift-empty-icon">📅</div>尚未排班</div></div>';return;}
-  el.innerHTML='<div class="adm-shift-card">'+dayShifts.map(s=>{
-    const u=users.find(u=>u.id===s.userId)||{name:s.userId};
-    const st=SHIFT_TYPES[s.type]||SHIFT_TYPES.full;
-    return `<div class="adm-shift-member"><div class="asmav">${u.name[0]}</div>
-      <span class="asm-name">${u.name}</span><span class="asm-time">${st.time}</span>
-      <span class="shift-badge ${st.cls}" style="margin-left:6px">${st.label}</span>
-      <button style="margin-left:8px;background:none;border:none;color:var(--red);cursor:pointer;font-size:16px" onclick="deleteShift('${selectedAdmSchedDate}','${s.userId}')">✕</button>
-    </div>`;
-  }).join('')+'</div>';
-}
-function openAddShift(){
-  const store=document.getElementById('admSchedStore').value;
-  const users=cachedUsers.filter(u=>u.store===store&&(u.role==='staff'||u.role==='manager'));
-  document.getElementById('shiftUser').innerHTML=users.map(u=>`<option value="${u.id}">${u.name}</option>`).join('');
-  openModal('shiftModal');
-}
-async function saveShift(){
-  const store=document.getElementById('admSchedStore').value;
-  const userId=document.getElementById('shiftUser').value;
-  const type=document.getElementById('shiftType').value;
-  const note=document.getElementById('shiftNote').value;
-  await fbSaveShift(selectedAdmSchedDate,{userId,store,type,note});
-  closeModal('shiftModal');
-  await renderAdmSchedContent();
-  toast('✅ 班次已儲存至雲端');
-}
-async function deleteShift(date,userId){
-  await fbDeleteShift(date,userId);
-  await renderAdmSchedContent();
-  toast('班次已刪除');
-}
-document.getElementById('admSchedStore').addEventListener('change',renderAdmSchedContent);
 
 // admin 出勤
+
 function populateAdmHistUser(){
   const users=cachedUsers.filter(u=>u.role!=='admin');
   document.getElementById('admHistUser').innerHTML='<option value="">全部夥伴</option>'+
