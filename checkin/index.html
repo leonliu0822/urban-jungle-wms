@@ -1352,9 +1352,281 @@ async function deleteUser(id){
   await fbDeleteUser(id);renderAdmUsers();toast('帳號已刪除');
 }
 
+
+// ══ GPS 打卡系統 ══
+const STORE_COORDS = {
+  '台北店': { lat: 25.041865, lng: 121.507781 },
+  '新竹店': { lat: 24.814075, lng: 120.968551 },
+  '台中店': { lat: 24.132133, lng: 120.645875 },
+  '高雄店': { lat: 22.632848, lng: 120.295298 },
+};
+const GPS_RADIUS = 50;
+
+let gpsPosition = null;
+let gpsNearestStore = null;
+let gpsDistance = null;
+let gpsActionType = 'checkin'; // 從 URL 參數取得
+
+function gpsCalcDistance(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const dLat = (lat2-lat1)*Math.PI/180;
+  const dLng = (lng2-lng1)*Math.PI/180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
+  return Math.round(R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a)));
+}
+
+function gpsFindNearest(lat, lng) {
+  let nearest = null, minDist = Infinity;
+  for (const [name, coord] of Object.entries(STORE_COORDS)) {
+    const dist = gpsCalcDistance(lat, lng, coord.lat, coord.lng);
+    if (dist < minDist) { minDist = dist; nearest = name; }
+  }
+  return { store: nearest, distance: minDist };
+}
+
+function gpsShow(id) {
+  ['gpsDetecting','gpsVerifying','gpsSuccess','gpsFail','gpsError'].forEach(el => {
+    document.getElementById(el).style.display = 'none';
+  });
+  document.getElementById(id).style.display = 'block';
+}
+
+async function startGPS() {
+  // 讀取 URL 參數
+  const params = new URLSearchParams(window.location.search);
+  gpsActionType = params.get('action') || 'checkin';
+  const lineUserId = params.get('uid') || '';
+
+  // 根據 action 更新按鈕顯示
+  updateGPSButtons(gpsActionType);
+
+  document.getElementById('gpsDetecting').style.display = 'block';
+  document.getElementById('gpsActions').style.display = 'none';
+
+  if (!navigator.geolocation) {
+    gpsShow('gpsError');
+    document.getElementById('gpsErrorDetail').textContent = '你的瀏覽器不支援 GPS 定位';
+    return;
+  }
+
+  navigator.geolocation.getCurrentPosition(
+    async (pos) => {
+      gpsShow('gpsVerifying');
+      const lat = pos.coords.latitude;
+      const lng = pos.coords.longitude;
+      const accuracy = Math.round(pos.coords.accuracy);
+      gpsPosition = { lat, lng, accuracy };
+
+      const { store, distance } = gpsFindNearest(lat, lng);
+      gpsNearestStore = store;
+      gpsDistance = distance;
+
+      if (distance <= GPS_RADIUS) {
+        // 驗證通過
+        gpsShow('gpsSuccess');
+        document.getElementById('gpsDistance').textContent = distance + ' 公尺';
+        document.getElementById('gpsSuccessTitle').textContent = '位置驗證通過！';
+        document.getElementById('gpsSuccessDetail').textContent = store + ' · 精確度 ' + accuracy + 'm';
+        document.getElementById('gpsActions').style.display = 'block';
+      } else {
+        // 驗證失敗
+        gpsShow('gpsFail');
+        document.getElementById('gpsFailDetail').textContent =
+          '距離 ' + store + ' 約 ' + distance + ' 公尺\n需在 ' + GPS_RADIUS + ' 公尺範圍內';
+      }
+    },
+    (err) => {
+      gpsShow('gpsError');
+      const msgs = {
+        1: '請在手機設定中允許此網頁取得位置',
+        2: '無法取得 GPS 訊號，請到室外或靠近窗戶',
+        3: '定位超時，請重試',
+      };
+      document.getElementById('gpsErrorDetail').textContent = msgs[err.code] || '定位失敗，請重試';
+    },
+    { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+  );
+}
+
+function updateGPSButtons(action) {
+  const btnCheckin = document.getElementById('gpsBtnCheckin');
+  const btnBreak = document.getElementById('gpsBtnBreak');
+  const btnEndbreak = document.getElementById('gpsBtnEndbreak');
+  const btnCheckout = document.getElementById('gpsBtnCheckout');
+
+  // 根據 action 只顯示對應按鈕
+  if (action === 'checkin') {
+    btnCheckin.style.display = 'flex';
+    btnBreak.style.display = 'none';
+    btnEndbreak.style.display = 'none';
+    btnCheckout.style.display = 'none';
+  } else if (action === 'break') {
+    btnCheckin.style.display = 'none';
+    btnBreak.style.display = 'block';
+    btnEndbreak.style.display = 'none';
+    btnCheckout.style.display = 'none';
+  } else if (action === 'endbreak') {
+    btnCheckin.style.display = 'none';
+    btnBreak.style.display = 'none';
+    btnEndbreak.style.display = 'block';
+    btnCheckout.style.display = 'none';
+  } else if (action === 'checkout') {
+    btnCheckin.style.display = 'none';
+    btnBreak.style.display = 'none';
+    btnEndbreak.style.display = 'none';
+    btnCheckout.style.display = 'block';
+  } else {
+    // 全部顯示（選單模式）
+    [btnCheckin,btnBreak,btnEndbreak,btnCheckout].forEach(b=>b.style.display='block');
+    btnCheckin.style.display = 'flex';
+  }
+}
+
+async function submitGPSCheckin(actionType) {
+  if (!gpsPosition || gpsDistance > GPS_RADIUS) return;
+
+  const params = new URLSearchParams(window.location.search);
+  const lineUserId = params.get('uid') || '';
+  const token = params.get('token') || '';
+
+  // 顯示處理中
+  gpsShow('gpsVerifying');
+  document.getElementById('gpsVerifying').innerHTML =
+    '<div style="font-size:36px;margin-bottom:12px">⏳</div><div style="color:var(--gold-pale);font-size:14px">打卡處理中…</div>';
+  document.getElementById('gpsActions').style.display = 'none';
+
+  try {
+    const res = await fetch('/api/gps-checkin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: actionType,
+        lat: gpsPosition.lat,
+        lng: gpsPosition.lng,
+        accuracy: gpsPosition.accuracy,
+        store: gpsNearestStore,
+        distance: gpsDistance,
+        lineUserId,
+        token,
+      }),
+    });
+    const data = await res.json();
+
+    if (data.success) {
+      gpsShow('gpsSuccess');
+      document.getElementById('gpsSuccessTitle').textContent = data.title || '打卡成功！';
+      document.getElementById('gpsSuccessDetail').textContent = data.detail || '';
+      document.getElementById('gpsDistance').textContent = gpsDistance + ' 公尺';
+      document.getElementById('gpsActions').style.display = 'none';
+      // 3 秒後關閉 LIFF
+      setTimeout(() => {
+        if (window.liff && liff.isInClient()) liff.closeWindow();
+      }, 3000);
+    } else {
+      gpsShow('gpsFail');
+      document.getElementById('gpsFailDetail').textContent = data.message || '打卡失敗，請重試';
+      document.getElementById('gpsActions').style.display = 'block';
+    }
+  } catch(err) {
+    gpsShow('gpsError');
+    document.getElementById('gpsErrorDetail').textContent = '網路連線失敗，請重試';
+  }
+}
+
+// ── 初始化：判斷是否進入 GPS 打卡模式 ──
+function checkGPSMode() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('mode') === 'gps') {
+    // GPS 打卡模式
+    document.getElementById('gpsLogo').src = LOGO;
+    showScreen('s-gps');
+    startGPS();
+    return true;
+  }
+  return false;
+}
+
 // ══ 啟動 ══
-init();
+if (!checkGPSMode()) init();
 setInterval(initDate,60000);
 </script>
+
+<!-- ══ LIFF GPS 打卡頁面 ══ -->
+<div class="screen" id="s-gps">
+  <div style="background:var(--moss-dark);min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 24px;text-align:center">
+    
+    <div style="margin-bottom:32px">
+      <img id="gpsLogo" style="height:80px;width:auto;margin-bottom:20px;display:block;margin-left:auto;margin-right:auto" alt="Urban Jungle">
+      <div style="font-family:var(--serif);font-size:22px;color:var(--gold);margin-bottom:6px">到店打卡</div>
+      <div style="font-size:11px;color:rgba(228,207,160,.5);letter-spacing:2px;text-transform:uppercase">GPS 位置驗證</div>
+    </div>
+
+    <!-- 狀態卡片 -->
+    <div id="gpsCard" style="background:rgba(255,255,255,.06);border:1.5px solid rgba(201,169,110,.2);border-radius:20px;padding:28px 24px;width:100%;max-width:320px;margin-bottom:24px">
+      
+      <!-- 偵測中 -->
+      <div id="gpsDetecting">
+        <div style="width:60px;height:60px;border:3px solid rgba(201,169,110,.2);border-top-color:var(--gold);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 16px"></div>
+        <div style="color:var(--gold-pale);font-size:14px">正在讀取你的位置…</div>
+        <div style="color:rgba(228,207,160,.4);font-size:11px;margin-top:8px">請確認已開啟位置權限</div>
+      </div>
+
+      <!-- 驗證中 -->
+      <div id="gpsVerifying" style="display:none">
+        <div style="font-size:36px;margin-bottom:12px">🔍</div>
+        <div style="color:var(--gold-pale);font-size:14px">驗證位置中…</div>
+      </div>
+
+      <!-- 成功 -->
+      <div id="gpsSuccess" style="display:none">
+        <div style="font-size:48px;margin-bottom:12px">✅</div>
+        <div style="font-family:var(--serif);font-size:20px;color:var(--gold);margin-bottom:8px" id="gpsSuccessTitle">打卡成功！</div>
+        <div style="color:var(--gold-pale);font-size:13px" id="gpsSuccessDetail"></div>
+        <div style="margin-top:16px;background:rgba(201,169,110,.1);border-radius:12px;padding:12px">
+          <div style="font-size:10px;color:rgba(228,207,160,.5);margin-bottom:4px;letter-spacing:1px">距門市</div>
+          <div style="font-family:var(--mono);font-size:18px;color:var(--gold)" id="gpsDistance">—</div>
+        </div>
+      </div>
+
+      <!-- 失敗 -->
+      <div id="gpsFail" style="display:none">
+        <div style="font-size:48px;margin-bottom:12px">❌</div>
+        <div style="font-family:var(--serif);font-size:18px;color:#e08080;margin-bottom:8px">位置驗證失敗</div>
+        <div style="color:rgba(228,207,160,.6);font-size:13px" id="gpsFailDetail"></div>
+      </div>
+
+      <!-- 錯誤 -->
+      <div id="gpsError" style="display:none">
+        <div style="font-size:48px;margin-bottom:12px">⚠️</div>
+        <div style="font-family:var(--serif);font-size:18px;color:#e8b860;margin-bottom:8px">無法取得位置</div>
+        <div style="color:rgba(228,207,160,.6);font-size:13px" id="gpsErrorDetail">請確認已開啟手機定位服務與位置權限</div>
+        <button onclick="startGPS()" style="margin-top:16px;background:var(--gold);color:var(--moss-dark);border:none;border-radius:10px;padding:12px 24px;font-size:14px;font-weight:700;cursor:pointer;font-family:var(--sans)">重新偵測</button>
+      </div>
+    </div>
+
+    <!-- 打卡類型選擇 -->
+    <div id="gpsActions" style="width:100%;max-width:320px;display:none">
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <button id="gpsBtnCheckin" onclick="submitGPSCheckin('checkin')" style="width:100%;background:var(--gold);color:var(--moss-dark);border:none;border-radius:14px;padding:16px;font-family:var(--serif);font-size:18px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px">
+          🌿 到店打卡
+        </button>
+        <button id="gpsBtnBreak" onclick="submitGPSCheckin('break')" style="width:100%;background:transparent;color:var(--gold);border:2px solid rgba(201,169,110,.4);border-radius:14px;padding:14px;font-size:14px;font-weight:700;cursor:pointer;font-family:var(--sans)">
+          ☕ 午休開始
+        </button>
+        <button id="gpsBtnEndbreak" onclick="submitGPSCheckin('endbreak')" style="width:100%;background:transparent;color:var(--gold);border:2px solid rgba(201,169,110,.4);border-radius:14px;padding:14px;font-size:14px;font-weight:700;cursor:pointer;font-family:var(--sans)">
+          ✓ 結束午休
+        </button>
+        <button id="gpsBtnCheckout" onclick="submitGPSCheckin('checkout')" style="width:100%;background:transparent;color:#e08080;border:2px solid rgba(224,128,128,.4);border-radius:14px;padding:14px;font-size:14px;font-weight:700;cursor:pointer;font-family:var(--sans)">
+          ◎ 下班打卡
+        </button>
+      </div>
+    </div>
+
+    <div style="margin-top:24px;font-size:10px;color:rgba(228,207,160,.25);letter-spacing:1px">
+      Urban Jungle · Waxing for Men<br>位置資訊僅用於打卡驗證
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
