@@ -1495,8 +1495,12 @@ async function submitGPSCheckin(actionType) {
     '<div style="font-size:36px;margin-bottom:12px">⏳</div><div style="color:var(--gold-pale);font-size:14px">打卡處理中…</div>';
   document.getElementById('gpsActions').style.display = 'none';
 
+  // 從 localStorage 取得登入的 userId（如果有的話）
+  // 或從 URL 參數取得
+  const sessionUserId = localStorage.getItem('uj_session') || '';
+
   try {
-    const res = await fetch('/api/gps-checkin', {
+    const res = await fetch('https://urban-jungle-bot.vercel.app/api/gps-checkin', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1507,7 +1511,7 @@ async function submitGPSCheckin(actionType) {
         store: gpsNearestStore,
         distance: gpsDistance,
         lineUserId,
-        token,
+        sessionUserId,
       }),
     });
     const data = await res.json();
@@ -1537,9 +1541,16 @@ async function submitGPSCheckin(actionType) {
 function checkGPSMode() {
   const params = new URLSearchParams(window.location.search);
   if (params.get('mode') === 'gps') {
-    // GPS 打卡模式
+    // 立刻顯示 GPS 頁面，阻止任何 session 判斷
     document.getElementById('gpsLogo').src = LOGO;
-    showScreen('s-gps');
+    // 隱藏所有其他畫面
+    document.querySelectorAll('.screen').forEach(s => {
+      s.classList.remove('active');
+      s.style.display = 'none';
+    });
+    const gpsScreen = document.getElementById('s-gps');
+    gpsScreen.style.display = 'flex';
+    gpsScreen.classList.add('active');
     startGPS();
     return true;
   }
