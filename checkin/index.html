@@ -315,22 +315,23 @@ select.inp{cursor:pointer}
 .toast.warn{background:var(--amber);color:white}
 .toast.err{background:var(--red);color:white}
 </style>
+<script>
+// 在 DOM 載入前就判斷模式，避免 flash
+var __p = new URLSearchParams(location.search);
+if (__p.get('mode') === 'gps') {
+  window.__GPS_MODE__ = true;
+  window.__GPS_ACTION__ = __p.get('action') || 'checkin';
+  // 直接寫入 style 讓 s-gps 顯示
+  document.write('<style>#s-gps{display:flex!important}#s-loading,#s-login,#s-app,#s-admin{display:none!important}</style>');
+} else {
+  document.write('<style>#s-loading{display:flex!important}</style>');
+}
+</script>
 </head>
 <body>
-<script>
-// 最早期 GPS 模式判斷 - 在所有其他 JS 之前執行
-(function(){
-  var params = new URLSearchParams(window.location.search);
-  if (params.get('mode') === 'gps') {
-    // 標記為 GPS 模式，讓後面的 init() 知道要跳過
-    window.__GPS_MODE__ = true;
-    window.__GPS_ACTION__ = params.get('action') || 'checkin';
-  }
-})();
-</script>
 
 <!-- LOADING -->
-<div class="screen active" id="s-loading">
+<div class="screen" id="s-loading">
   <div style="text-align:center">
     <div class="loading-logo"><img id="loadingLogo" alt="Urban Jungle"></div>
     <div class="loading-spin"></div>
