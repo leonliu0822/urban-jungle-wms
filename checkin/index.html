@@ -317,6 +317,17 @@ select.inp{cursor:pointer}
 </style>
 </head>
 <body>
+<script>
+// 最早期 GPS 模式判斷 - 在所有其他 JS 之前執行
+(function(){
+  var params = new URLSearchParams(window.location.search);
+  if (params.get('mode') === 'gps') {
+    // 標記為 GPS 模式，讓後面的 init() 知道要跳過
+    window.__GPS_MODE__ = true;
+    window.__GPS_ACTION__ = params.get('action') || 'checkin';
+  }
+})();
+</script>
 
 <!-- LOADING -->
 <div class="screen active" id="s-loading">
@@ -791,20 +802,6 @@ async function fbGetShifts(dates){
 
 // ══ 啟動 ══
 async function init(){
-  // 第一優先：檢查是否為 GPS 打卡模式
-  const _params = new URLSearchParams(window.location.search);
-  if (_params.get('mode') === 'gps') {
-    document.getElementById('gpsLogo').src = LOGO;
-    document.querySelectorAll('.screen').forEach(s => {
-      s.classList.remove('active');
-      s.style.display = 'none';
-    });
-    const gpsScreen = document.getElementById('s-gps');
-    gpsScreen.style.display = 'flex';
-    gpsScreen.classList.add('active');
-    startGPS();
-    return; // 完全停止，不執行任何 Firebase 或 session 邏輯
-  }
   showScreen('s-loading');
   try{
     await fbGetUsers();
@@ -1561,7 +1558,7 @@ function checkGPSMode() {
 }
 
 // ══ 啟動 ══
-init();
+if (!checkGPSMode()) init();
 setInterval(initDate,60000);
 </script>
 
