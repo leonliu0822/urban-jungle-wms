@@ -791,6 +791,20 @@ async function fbGetShifts(dates){
 
 // ══ 啟動 ══
 async function init(){
+  // 第一優先：檢查是否為 GPS 打卡模式
+  const _params = new URLSearchParams(window.location.search);
+  if (_params.get('mode') === 'gps') {
+    document.getElementById('gpsLogo').src = LOGO;
+    document.querySelectorAll('.screen').forEach(s => {
+      s.classList.remove('active');
+      s.style.display = 'none';
+    });
+    const gpsScreen = document.getElementById('s-gps');
+    gpsScreen.style.display = 'flex';
+    gpsScreen.classList.add('active');
+    startGPS();
+    return; // 完全停止，不執行任何 Firebase 或 session 邏輯
+  }
   showScreen('s-loading');
   try{
     await fbGetUsers();
@@ -1495,12 +1509,8 @@ async function submitGPSCheckin(actionType) {
     '<div style="font-size:36px;margin-bottom:12px">⏳</div><div style="color:var(--gold-pale);font-size:14px">打卡處理中…</div>';
   document.getElementById('gpsActions').style.display = 'none';
 
-  // 從 localStorage 取得登入的 userId（如果有的話）
-  // 或從 URL 參數取得
-  const sessionUserId = localStorage.getItem('uj_session') || '';
-
   try {
-    const res = await fetch('https://urban-jungle-bot.vercel.app/api/gps-checkin', {
+    const res = await fetch('/api/gps-checkin', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1511,7 +1521,7 @@ async function submitGPSCheckin(actionType) {
         store: gpsNearestStore,
         distance: gpsDistance,
         lineUserId,
-        sessionUserId,
+        token,
       }),
     });
     const data = await res.json();
@@ -1541,16 +1551,9 @@ async function submitGPSCheckin(actionType) {
 function checkGPSMode() {
   const params = new URLSearchParams(window.location.search);
   if (params.get('mode') === 'gps') {
-    // 立刻顯示 GPS 頁面，阻止任何 session 判斷
+    // GPS 打卡模式
     document.getElementById('gpsLogo').src = LOGO;
-    // 隱藏所有其他畫面
-    document.querySelectorAll('.screen').forEach(s => {
-      s.classList.remove('active');
-      s.style.display = 'none';
-    });
-    const gpsScreen = document.getElementById('s-gps');
-    gpsScreen.style.display = 'flex';
-    gpsScreen.classList.add('active');
+    showScreen('s-gps');
     startGPS();
     return true;
   }
@@ -1558,7 +1561,7 @@ function checkGPSMode() {
 }
 
 // ══ 啟動 ══
-if (!checkGPSMode()) init();
+init();
 setInterval(initDate,60000);
 </script>
 
