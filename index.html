@@ -1034,7 +1034,8 @@ function renderLog(){
     const subS=l.subtype?` · ${si[l.subtype]||''}${l.subtype}`:'';
     const opTag=l.operator?`<span class="operator-tag">👤 ${l.operator}</span>`:'';
     const isDone=l.status==='已處理';
-    const stBtn=!isIn?`<button class="status-btn ${isDone?'status-done':'status-pending'}" onclick="toggleStatus('${l.id}','${isDone?'待處理':'已處理'}')">${isDone?'✅ 已處理':'⏳ 待處理'}</button>`:'<span style="font-size:11px;color:var(--muted)">— 進貨</span>';
+    const processedTag=isDone&&l.processedBy?`<span class="operator-tag" style="margin-left:6px">✓ ${l.processedBy}</span>`:'';
+    const stBtn=!isIn?`<button class="status-btn ${isDone?'status-done':'status-pending'}" onclick="toggleStatus('${l.id}','${isDone?'待處理':'已處理'}')">${isDone?'✅ 已處理':'⏳ 待處理'}</button>${processedTag}`:'<span style="font-size:11px;color:var(--muted)">— 進貨</span>';
     const delBtn=canDel?`<button class="btn-sm btn-out" style="padding:5px 12px;flex:none" onclick="deleteLog('${l.id}','${(l.isBatch?'批次紀錄':l.product||'').replace(/'/g,"&#39;")}')">🗑️ 刪除</button>`:'<span></span>';
     const editBtn=canDel?`<button class="btn-sm" style="padding:5px 12px;flex:none;background:#eee9fb;color:#6a52c4;border:1px solid #c5b8ed" onclick="${l.isBatch?`openBatchEdit('${l.id}')`:`openEditLog('${l.id}')`}">✏️ 編輯</button>`:'';
     if(l.isBatch&&l.items){
@@ -1050,7 +1051,19 @@ window.filterLogStatus=function(status,el){
   currentStatusFilter=status;document.querySelectorAll('.status-filter-btn').forEach(b=>b.classList.remove('active'));el.classList.add('active');renderLog();
 };
 window.toggleStatus=async function(lid,newStatus){
-  try{await updateDoc(doc(db,'logs',lid),{status:newStatus});showToast(newStatus==='已處理'?'✅ 已標記為已處理':'⏳ 已標記為待處理');}catch(e){showToast('❌ 更新失敗');}
+  try{
+    const operator=currentUser?.displayName||currentUser?.username||'—';
+    const updateData={status:newStatus};
+    if(newStatus==='已處理'){
+      updateData.processedBy=operator;
+      updateData.processedAt=serverTimestamp();
+    }else{
+      updateData.processedBy='';
+      updateData.processedAt=null;
+    }
+    await updateDoc(doc(db,'logs',lid),updateData);
+    showToast(newStatus==='已處理'?`✅ 已標記為已處理（${operator}）`:'⏳ 已標記為待處理');
+  }catch(e){showToast('❌ 更新失敗');}
 };
 window.clearDateFilter=function(){document.getElementById('log-date-from').value='';document.getElementById('log-date-to').value='';renderLog();};
 
@@ -1615,7 +1628,7 @@ window.exportExcel=function(){
   sorted.forEach(l=>{
     const t=l.time?.toDate?l.time.toDate():new Date(l.time||Date.now());
     const ds=t.toLocaleDateString('zh-TW',{year:'numeric',month:'2-digit',day:'2-digit'}),ts=t.toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});
-    const isIn=l.type==='進貨';const base={date:ds,time:ts,ts:t,isIn,store:l.store,subtype:l.subtype||'—',status:l.status||'待處理',operator:l.operator||'—',note:l.note||'',isBatch:l.isBatch};
+    const isIn=l.type==='進貨';const base={date:ds,time:ts,ts:t,isIn,store:l.store,subtype:l.subtype||'—',status:l.status||'待處理',operator:l.operator||'—',processedBy:l.processedBy||'—',note:l.note||'',isBatch:l.isBatch};
     if(l.isBatch&&l.items)l.items.forEach(it=>allRows.push({...base,productName:it.name,productId:it.productId,qty:it.qty}));
     else allRows.push({...base,productName:l.product||'',productId:l.productId,qty:l.qty});
   });
@@ -1633,7 +1646,7 @@ window.exportExcel=function(){
   withBal.filter(r=>r.isIn).forEach(r=>{const k=`${r.productName}|||${r.store}`;if(outS[k])outS[k].進貨+=r.qty;});
   const ws2=XLSX.utils.json_to_sheet(Object.values(outS).length?Object.values(outS).sort((a,b)=>a.商品名稱.localeCompare(b.商品名稱,'zh-TW')).map(s=>({'商品名稱':s.商品名稱,'分店':s.分店,'期初庫存':s.期初庫存,'進貨':s.進貨,'出售':s.出售,'店用':s.店用,'贈送':s.贈送,'出貨合計':s.出貨合計,'期末庫存':s.期末庫存})):[{'提示':'此期間無出貨'}]);ws2['!cols']=cw([22,8,10,8,10,10,10,10,10]);XLSX.utils.book_append_sheet(wb,ws2,'出貨統整');
   // Sheet3 出貨明細
-  const ws3=XLSX.utils.json_to_sheet(outR.length?outR.map(r=>({'日期':r.date,'時間':r.time,'分店':r.store,'商品名稱':r.productName,'出貨數量':r.qty,'操作後庫存':r.bal,'出貨類型':r.subtype,'出貨狀態':r.status,'操作人員':r.operator,'備註':r.note,'批次':r.isBatch?'是':'否'})):[{'提示':'無出貨'}]);ws3['!cols']=cw([10,10,8,22,8,10,10,8,12,16,6]);XLSX.utils.book_append_sheet(wb,ws3,'出貨明細');
+  const ws3=XLSX.utils.json_to_sheet(outR.length?outR.map(r=>({'日期':r.date,'時間':r.time,'分店':r.store,'商品名稱':r.productName,'出貨數量':r.qty,'操作後庫存':r.bal,'出貨類型':r.subtype,'出貨狀態':r.status,'處理人員':r.processedBy,'操作人員':r.operator,'備註':r.note,'批次':r.isBatch?'是':'否'})):[{'提示':'無出貨'}]);ws3['!cols']=cw([10,10,8,22,8,10,10,8,10,12,16,6]);XLSX.utils.book_append_sheet(wb,ws3,'出貨明細');
   // Sheet4 進貨統整
   const inR=withBal.filter(r=>r.isIn),inS={};
   inR.forEach(r=>{const k=`${r.productName}|||${r.store}`;if(!inS[k])inS[k]={商品名稱:r.productName,分店:r.store,期初庫存:os[k]??gq(r.productName,r.store),進貨合計:0,期末庫存:gq(r.productName,r.store)};inS[k].進貨合計+=r.qty;});
