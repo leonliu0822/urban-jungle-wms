@@ -620,6 +620,35 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:0
   </div>
 </div>
 
+<!-- EDIT USER ROLE -->
+<div class="modal-overlay" id="edit-user-overlay" onclick="if(event.target===this)closeEditUserRole()">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">✏️ 編輯帳號權限</div>
+    <div style="font-size:13px;color:var(--muted);margin-bottom:16px" id="eu-name"></div>
+    <input type="hidden" id="eu-uid">
+    <div class="form-group">
+      <label class="form-label">角色</label>
+      <select class="form-select" id="eu-role">
+        <option value="staff">👤 員工（只能進出貨）</option>
+        <option value="manager">🏪 店長（可看所有資料、匯出、編輯）</option>
+        <option value="owner">👑 老闆（完整權限）</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">所屬分店</label>
+      <select class="form-select" id="eu-store">
+        <option value="">全部分店</option>
+        <option>台北</option><option>新竹</option><option>台中</option><option>高雄</option>
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button class="modal-btn ghost" onclick="closeEditUserRole()">取消</button>
+      <button class="modal-btn primary" onclick="submitEditUserRole()">儲存變更</button>
+    </div>
+  </div>
+</div>
+
 <!-- ADD USER -->
 <div class="modal-overlay" id="add-user-overlay" onclick="if(event.target===this)closeAddUser()">
   <div class="modal">
@@ -1536,9 +1565,29 @@ async function renderUsers(){
         <div><div class="user-card-name">${u.displayName||u.username}</div><div class="user-card-meta">帳號：${u.username}${u.store?' · '+u.store:' · 全店'}</div></div>
         <span class="role-badge ${u.role}">${ROLE_LABEL[u.role]||u.role}</span>
       </div>
-      ${u.id===currentUser?.id?'<div style="font-size:11px;color:var(--accent2);padding:0 14px 12px">← 目前登入帳號</div>':`<div class="user-card-actions"><button class="user-act pwd" onclick="resetUserPwd('${u.id}','${u.displayName||u.username}')">🔑 重設密碼</button>${canDelete?`<button class="user-act del" onclick="deactivateUser('${u.id}','${u.displayName||u.username}')">🗑️ 停用</button>`:''}</div>`}
+      ${u.id===currentUser?.id?'<div style="font-size:11px;color:var(--accent2);padding:0 14px 12px">← 目前登入帳號</div>':`<div class="user-card-actions"><button class="user-act pwd" style="color:var(--accent2)" onclick="openEditUserRole('${u.id}','${(u.displayName||u.username).replace(/'/g,"&#39;")}','${u.role}','${u.store||''}')">✏️ 編輯</button><button class="user-act pwd" onclick="resetUserPwd('${u.id}','${u.displayName||u.username}')">🔑 密碼</button>${canDelete?`<button class="user-act del" onclick="deactivateUser('${u.id}','${u.displayName||u.username}')">🗑️ 停用</button>`:''}</div>`}
     </div>`).join('');
 }
+window.openEditUserRole=function(uid,name,role,store){
+  document.getElementById('eu-uid').value=uid;
+  document.getElementById('eu-name').textContent=name;
+  document.getElementById('eu-role').value=role;
+  document.getElementById('eu-store').value=store||'';
+  document.getElementById('edit-user-overlay').classList.add('open');
+};
+window.closeEditUserRole=function(){document.getElementById('edit-user-overlay').classList.remove('open');};
+window.submitEditUserRole=async function(){
+  const uid=document.getElementById('eu-uid').value;
+  const role=document.getElementById('eu-role').value;
+  const store=document.getElementById('eu-store').value;
+  const name=document.getElementById('eu-name').textContent;
+  try{
+    await updateDoc(doc(db,'users',uid),{role,store});
+    closeEditUserRole();
+    showToast(`✅ 已更新 ${name} 的權限`);
+    renderUsers();
+  }catch(e){console.error(e);showToast('❌ 更新失敗，請重試');}
+};
 window.resetUserPwd=async function(uid,name){
   const pwd=prompt(`重設「${name}」的新密碼（至少6位數）：`);if(!pwd)return;if(pwd.length<6){showToast('⚠️ 密碼至少6位數');return;}
   const hash=await hashPwd(pwd);await updateDoc(doc(db,'users',uid),{passwordHash:hash});showToast(`✅ 已重設 ${name} 的密碼`);
