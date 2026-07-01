@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+、<!DOCTYPE html>
 <html lang="zh-TW">
 <head>
 <meta charset="UTF-8">
@@ -382,7 +382,7 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:0
     <div class="home-wrap">
       <div class="home-greeting">
         <div class="name" id="home-greeting-name">歡迎</div>
-        <div class="sub" id="last-update">即時同步中...</div>
+        <div class="sub" id="home-greeting-sub">即時同步中...</div>
       </div>
       <div class="home-section-label">快速操作</div>
       <div class="home-actions">
@@ -416,7 +416,13 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:0
         <div class="home-stat"><div class="home-stat-label">商品種類</div><div class="home-stat-val" style="color:var(--accent2)" id="stat-total">—</div></div>
         <div class="home-stat"><div class="home-stat-label">庫存正常</div><div class="home-stat-val" style="color:var(--success)" id="stat-ok">—</div></div>
         <div class="home-stat"><div class="home-stat-label">低量警示</div><div class="home-stat-val" style="color:var(--warn)" id="stat-warn">—</div></div>
-        <div class="home-stat"><div class="home-stat-label">緊急補貨</div><div class="home-stat-val" style="color:var(--danger)" id="stat-low">—</div></div>
+        <div class="home-stat"><div class="home-stat-label">緊急補貨</div><div class="home-stat-val" style="color:var(--danger)" id="stat-low"><span id="hs-low">—</span></div></div>
+      </div>
+      <div style="margin-top:10px" id="hs-pending-wrap" style="display:none">
+        <div class="home-stat" style="background:#fbf3e1;border:1px solid #e8d3a8">
+          <div class="home-stat-label">待處理出貨</div>
+          <div class="home-stat-val" style="color:var(--warn)"><span id="hs-pending">0</span></div>
+        </div>
       </div>
     </div>
   </div>
@@ -796,7 +802,7 @@ window.toggleUserMenu=function(){
 };
 window.closeUserMenu=function(){document.getElementById('user-menu').style.display='none';};
 document.addEventListener('click',e=>{
-  const b=document.getElementById('user-badge');
+  const b=document.getElementById('user-pill');
   const m=document.getElementById('user-menu');
   if(b&&m&&!b.contains(e.target)&&!m.contains(e.target))m.style.display='none';
 });
@@ -822,7 +828,7 @@ function listenProducts(){
       return a.name.localeCompare(b.name,'zh-TW');
     });
     renderCards();renderAlert();renderManage();updateStats();populateProductSelect();if(currentPage==='home')updateHomeStats();
-    const now='即時同步中 · '+new Date().toLocaleTimeString('zh-TW',{hour12:false});const lu=document.getElementById('last-update');const iu=document.getElementById('inv-update');if(lu)lu.textContent=now;if(iu)iu.textContent=now;
+    const now='即時同步中 · '+new Date().toLocaleTimeString('zh-TW',{hour12:false});const lu=document.getElementById('home-greeting-sub');const iu=document.getElementById('inv-update');if(lu)lu.textContent=now;if(iu)iu.textContent=now;
     setSyncStatus(true);
     if(document.getElementById('batch-overlay').classList.contains('open'))renderBatchList();
   },()=>setSyncStatus(false));
@@ -1715,8 +1721,6 @@ async function boot(){
 }
 
 // 直接掛在 window 確保 onclick 能呼叫
-window.openBatch=window.openBatch||function(type){console.warn('openBatch not ready');};
-
 boot();
 
 
