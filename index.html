@@ -1209,28 +1209,35 @@ window.submitTransaction=async function(){
   const qty=parseInt(document.getElementById('m-qty').value),note=document.getElementById('m-note').value.trim();
   if(!qty||qty<1){showToast('⚠️ 請輸入正確數量');return;}
   const p=products.find(x=>x.id===pid);if(!p){showToast('⚠️ 請選擇商品');return;}
-  const curQty=(p.inventory||{})[store]||0;
-  if(currentModal==='out'&&curQty<qty){showToast(`❌ 庫存不足！${store} 現有 ${curQty} 件`);return;}
+  const isIn=currentModal==='in';
   const btn=document.getElementById('modal-confirm');btn.textContent='處理中...';btn.disabled=true;
   try{
-    const delta=currentModal==='in'?qty:-qty;
     const pRef=doc(db,'products',pid);
-    await updateDoc(pRef,{[`inventory.${store}`]:increment(delta)});
+    // 用 transaction 確保讀最新值再寫，各分店完全獨立計算
+    await runTransaction(db,async(tx)=>{
+      const snap=await tx.get(pRef);
+      if(!snap.exists())throw new Error('商品不存在');
+      const curQty=(snap.data().inventory||{})[store]||0;
+      if(!isIn&&curQty<qty)throw new Error(`庫存不足！${store} 現有 ${curQty} 件`);
+      const newQty=isIn?curQty+qty:curQty-qty;
+      tx.update(pRef,{[`inventory.${store}`]:newQty});
+    });
+    // 同步本地快取
     const fresh=await getDoc(pRef);
     if(fresh.exists()){const idx=products.findIndex(x=>x.id===pid);if(idx>=0){products[idx]={id:pid,...fresh.data()};renderCards();updateStats();}}
-    if(currentModal==='out')await autoCheckAndClearExpiry(pid,store);
-    const subtype=currentModal==='out'?document.getElementById('m-subtype').value:'';
-    const status=currentModal==='out'?document.getElementById('m-status').value:'';
+    if(!isIn)await autoCheckAndClearExpiry(pid,store);
+    const subtype=!isIn?document.getElementById('m-subtype').value:'';
+    const status=!isIn?document.getElementById('m-status').value:'';
     const operator=currentUser?.displayName||currentUser?.username||'—';
-    const expiry=currentModal==='in'?document.getElementById('m-expiry').value:'';
-    if(expiry&&currentModal==='in'){
-      const existExp=((await getDoc(doc(db,'products',pid))).data()?.expiry||{})[store];
-      if(!existExp||expiry<existExp)await updateDoc(doc(db,'products',pid),{[`expiry.${store}`]:expiry});
+    const expiry=isIn?document.getElementById('m-expiry').value:'';
+    if(expiry&&isIn){
+      const existExp=((await getDoc(pRef)).data()?.expiry||{})[store];
+      if(!existExp||expiry<existExp)await updateDoc(pRef,{[`expiry.${store}`]:expiry});
     }
-    await addDoc(collection(db,'logs'),{product:p.name,productId:pid,store,type:currentModal==='in'?'進貨':'出貨',subtype,status,qty,note,operator,expiry:expiry||'',isBatch:false,time:serverTimestamp()});
-    closeModal();showToast(`${currentModal==='in'?'✅':'📤'} ${store} · ${p.name} ${currentModal==='in'?'進貨':'出貨'} ${qty} 件`);
-  }catch(e){console.error(e);showToast('❌ 操作失敗，請檢查網路');}
-  finally{btn.disabled=false;}
+    await addDoc(collection(db,'logs'),{product:p.name,productId:pid,store,type:isIn?'進貨':'出貨',subtype,status,qty,note,operator,expiry:expiry||'',isBatch:false,time:serverTimestamp()});
+    closeModal();showToast(`${isIn?'✅':'📤'} ${store} · ${p.name} ${isIn?'進貨':'出貨'} ${qty} 件`);
+  }catch(e){console.error(e);showToast('❌ '+(e.message||'操作失敗，請檢查網路'));}
+  finally{btn.disabled=false;btn.textContent=isIn?'確認進貨':'確認出貨';}
 };
 function populateProductSelect(){document.getElementById('m-product').innerHTML=products.map(p=>`<option value="${p.id}">${p.name} (${p.cat})</option>`).join('');}
 
@@ -1527,14 +1534,20 @@ window.submitBatch=async function(){
       closeBatch();
       showToast(`✅ 批次紀錄已更新（${logItems.length} 項）`);
     }else{
-      // ── 新建模式：原本的 increment 流程 ──
+      // ── 新建模式：每筆都用 transaction，確保各分店數量絕對正確 ──
       for(const [pid,qty] of entries){
         const p=products.find(x=>x.id===pid);if(!p)continue;
         const pRef=doc(db,'products',pid);
-        await updateDoc(pRef,{[`inventory.${store}`]:increment(isIn?qty:-qty)});
+        await runTransaction(db,async(tx)=>{
+          const snap=await tx.get(pRef);
+          if(!snap.exists())throw new Error(`商品不存在：${p.name}`);
+          const curQty=(snap.data().inventory||{})[store]||0;
+          if(!isIn&&curQty<qty)throw new Error(`${p.name} 庫存不足（${store} 現有 ${curQty} 件）`);
+          const newQty=isIn?curQty+qty:curQty-qty;
+          tx.update(pRef,{[`inventory.${store}`]:newQty});
+        });
         logItems.push({productId:pid,name:p.name,qty});
-      }
-      for(const [pid] of entries){
+        // 同步本地快取
         const fresh=await getDoc(doc(db,'products',pid));
         if(fresh.exists()){const idx=products.findIndex(x=>x.id===pid);if(idx>=0)products[idx]={id:pid,...fresh.data()};}
         if(!isIn)await autoCheckAndClearExpiry(pid,store);
