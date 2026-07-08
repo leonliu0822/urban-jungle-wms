@@ -1,4 +1,4 @@
-、<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-TW">
 <head>
 <meta charset="UTF-8">
@@ -900,13 +900,20 @@ function getExpiryInfo(dateStr){
 }
 
 async function autoCheckAndClearExpiry(pid,store){
-  const p=products.find(x=>x.id===pid);if(!p)return;
-  if(p.cat!=='蠟品'&&p.cat!=='保養品')return;
-  const qty=(p.inventory||{})[store]||0;
-  const hasExpiry=(p.expiry||{})[store];
-  if(qty<=0&&hasExpiry){
-    await updateDoc(doc(db,'products',pid),{[`expiry.${store}`]:''});
-    showToast(`🗓️ ${p.name} ${store} 庫存歸零，效期已自動清除`);
+  try{
+    const pRef=doc(db,'products',pid);
+    const snap=await getDoc(pRef);
+    if(!snap.exists())return;
+    const data=snap.data();
+    if(data.cat!=='蠟品'&&data.cat!=='保養品')return;
+    const qty=(data.inventory||{})[store]||0;
+    const hasExpiry=(data.expiry||{})[store];
+    if(qty<=0&&hasExpiry){
+      await updateDoc(pRef,{[`expiry.${store}`]:''});
+      showToast(`🗓️ ${data.name} ${store} 庫存歸零，效期已自動清除`);
+    }
+  }catch(e){
+    console.error('autoCheckAndClearExpiry error:',e);
   }
 }
 
@@ -1361,18 +1368,29 @@ window.deleteLog=async function(lid,desc){
     for(const item of items){
       if(!item.productId)continue;
       const pRef=doc(db,'products',item.productId);
-      await runTransaction(db,async(tx)=>{
-        const snap=await tx.get(pRef);
-        if(!snap.exists())return; // 商品已被刪除，略過
-        const data=snap.data();
-        const curQty=(data.inventory||{})[store]||0;
-        const newQty=curQty+reversal*item.qty;
-        tx.update(pRef,{[`inventory.${store}`]:newQty});
-      });
-      // 同步本地快取
-      const fresh=await getDoc(pRef);
-      if(fresh.exists()){const idx=products.findIndex(x=>x.id===item.productId);if(idx>=0)products[idx]={id:item.productId,...fresh.data()};}
-      await autoCheckAndClearExpiry(item.productId,store);
+      try{
+        await runTransaction(db,async(tx)=>{
+          const snap=await tx.get(pRef);
+          if(!snap.exists())return; // 商品已被刪除，略過
+          const data=snap.data();
+          const curQty=(data.inventory||{})[store]||0;
+          const newQty=curQty+reversal*item.qty;
+          const updateObj={[`inventory.${store}`]:newQty};
+          // 庫存歸零時同時清除效期（原子操作）
+          if(newQty<=0&&(data.expiry||{})[store]){
+            updateObj[`expiry.${store}`]='';
+          }
+          tx.update(pRef,updateObj);
+        });
+        // 同步本地快取
+        const fresh=await getDoc(pRef);
+        if(fresh.exists()){const idx=products.findIndex(x=>x.id===item.productId);if(idx>=0)products[idx]={id:item.productId,...fresh.data()};}
+        // 仍然呼叫 autoCheckAndClearExpiry（現在讀的是 Firebase 最新值）
+        await autoCheckAndClearExpiry(item.productId,store);
+      }catch(e){
+        console.error(`刪除品項 ${item.productId} 時出錯:`,e);
+        throw e; // 拋出錯誤，中止整個刪除流程
+      }
     }
 
     await deleteDoc(doc(db,'logs',lid));
