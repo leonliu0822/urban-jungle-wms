@@ -1226,14 +1226,20 @@ window.submitTransaction=async function(){
   const btn=document.getElementById('modal-confirm');btn.textContent='處理中...';btn.disabled=true;
   try{
     const pRef=doc(db,'products',pid);
-    // 用 transaction 確保讀最新值再寫，各分店完全獨立計算
+    // 用 transaction 確保讀最新值再寫，各分店完全獨立計算，庫存歸零時原子清除效期
     await runTransaction(db,async(tx)=>{
       const snap=await tx.get(pRef);
       if(!snap.exists())throw new Error('商品不存在');
-      const curQty=(snap.data().inventory||{})[store]||0;
+      const data=snap.data();
+      const curQty=(data.inventory||{})[store]||0;
       if(!isIn&&curQty<qty)throw new Error(`庫存不足！${store} 現有 ${curQty} 件`);
       const newQty=isIn?curQty+qty:curQty-qty;
-      tx.update(pRef,{[`inventory.${store}`]:newQty});
+      const updateObj={[`inventory.${store}`]:newQty};
+      // ✅ 庫存歸零時同時清除效期（原子操作）
+      if(newQty<=0&&(data.expiry||{})[store]){
+        updateObj[`expiry.${store}`]='';
+      }
+      tx.update(pRef,updateObj);
     });
     // 同步本地快取
     const fresh=await getDoc(pRef);
@@ -1298,7 +1304,7 @@ window.submitEditLog=async function(){
     const pRef=doc(db,'products',l.productId);
 
     if(oldStore===newStore){
-      // 同分店：只需套用差額
+      // 同分店：只需套用差額，庫存歸零時原子清除效期
       const delta=isIn?(newQty-oldQty):-(newQty-oldQty);
       await runTransaction(db,async(tx)=>{
         const snap=await tx.get(pRef);
@@ -1307,10 +1313,15 @@ window.submitEditLog=async function(){
         const curQty=(data.inventory||{})[newStore]||0;
         const result=curQty+delta;
         if(!isIn&&result<0)throw new Error(`庫存不足：${newStore} 目前 ${curQty} 件，無法調整為出貨 ${newQty} 件`);
-        tx.update(pRef,{[`inventory.${newStore}`]:result});
+        const updateObj={[`inventory.${newStore}`]:result};
+        // ✅ 庫存歸零時同時清除效期
+        if(result<=0&&(data.expiry||{})[newStore]){
+          updateObj[`expiry.${newStore}`]='';
+        }
+        tx.update(pRef,updateObj);
       });
     }else{
-      // 分店變更：舊店還原，新店套用
+      // 分店變更：舊店還原，新店套用，庫存歸零時原子清除效期
       await runTransaction(db,async(tx)=>{
         const snap=await tx.get(pRef);
         if(!snap.exists())throw new Error('商品不存在');
@@ -1322,7 +1333,15 @@ window.submitEditLog=async function(){
         const oldResult=oldStoreQty+reverseOld;
         const newResult=newStoreQty+applyNew;
         if(!isIn&&newResult<0)throw new Error(`庫存不足：${newStore} 無法扣到 ${newQty} 件`);
-        tx.update(pRef,{[`inventory.${oldStore}`]:oldResult,[`inventory.${newStore}`]:newResult});
+        const updateObj={[`inventory.${oldStore}`]:oldResult,[`inventory.${newStore}`]:newResult};
+        // ✅ 若庫存歸零則同時清除效期
+        if(oldResult<=0&&(data.expiry||{})[oldStore]){
+          updateObj[`expiry.${oldStore}`]='';
+        }
+        if(newResult<=0&&(data.expiry||{})[newStore]){
+          updateObj[`expiry.${newStore}`]='';
+        }
+        tx.update(pRef,updateObj);
       });
     }
 
@@ -1541,7 +1560,12 @@ window.submitBatch=async function(){
             const curQty=(data.inventory||{})[store]||0;
             const result=curQty+delta;
             if(!isIn&&result<0)throw new Error(`${p.name} 庫存不足，無法儲存`);
-            tx.update(pRef,{[`inventory.${store}`]:result});
+            const updateObj={[`inventory.${store}`]:result};
+            // ✅ 庫存歸零時同時清除效期
+            if(result<=0&&(data.expiry||{})[store]){
+              updateObj[`expiry.${store}`]='';
+            }
+            tx.update(pRef,updateObj);
           });
           const fresh=await getDoc(pRef);
           if(fresh.exists()){const idx=products.findIndex(x=>x.id===pid);if(idx>=0)products[idx]={id:pid,...fresh.data()};}
@@ -1565,14 +1589,20 @@ window.submitBatch=async function(){
         await runTransaction(db,async(tx)=>{
           const snap=await tx.get(pRef);
           if(!snap.exists())throw new Error(`商品不存在：${p.name}`);
-          const curQty=(snap.data().inventory||{})[store]||0;
+          const data=snap.data();
+          const curQty=(data.inventory||{})[store]||0;
           if(!isIn&&curQty<qty)throw new Error(`${p.name} 庫存不足（${store} 現有 ${curQty} 件）`);
           const newQty=isIn?curQty+qty:curQty-qty;
-          tx.update(pRef,{[`inventory.${store}`]:newQty});
+          const updateObj={[`inventory.${store}`]:newQty};
+          // ✅ 庫存歸零時同時清除效期
+          if(newQty<=0&&(data.expiry||{})[store]){
+            updateObj[`expiry.${store}`]='';
+          }
+          tx.update(pRef,updateObj);
         });
         logItems.push({productId:pid,name:p.name,qty});
         // 同步本地快取
-        const fresh=await getDoc(doc(db,'products',pid));
+        const fresh=await getDoc(pRef);
         if(fresh.exists()){const idx=products.findIndex(x=>x.id===pid);if(idx>=0)products[idx]={id:pid,...fresh.data()};}
         if(!isIn)await autoCheckAndClearExpiry(pid,store);
       }
