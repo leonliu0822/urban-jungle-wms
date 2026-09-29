@@ -740,6 +740,12 @@ const SUBCATS = {
 };
 const ROLE_LABEL = {owner:'👑 老闆',manager:'🏪 店長',staff:'👤 員工'};
 const ROLE_DOT = {owner:'dot-owner',manager:'dot-manager',staff:'dot-staff'};
+// 程式碼層級權限守衛：畫面上的按鈕/選單只是「隱藏」，並不能真的擋住有心人直接呼叫 window.xxx()。
+// 這裡對關鍵函式加一層與畫面顯示邏輯一致的再次檢查，兩邊必須同步維護。
+function requireRole(...roles){
+  if(!currentUser||!roles.includes(currentUser.role)){showToast('⛔ 權限不足，此操作需要 '+roles.map(r=>ROLE_LABEL[r]||r).join('/')+' 權限');return false;}
+  return true;
+}
 
 let products=[], logs=[], currentStore='全部', currentModal='in', currentPage='inventory';
 let batchType='in', batchQtys={}, currentSubcat='全部', currentStatusFilter='all';
@@ -1122,7 +1128,7 @@ function renderManage(){
   });
   document.getElementById('manage-list').innerHTML=html;
 }
-window.deleteProduct=async function(pid,name){if(!confirm(`確定要刪除「${name}」嗎？
+window.deleteProduct=async function(pid,name){if(!requireRole('owner','manager'))return;if(!confirm(`確定要刪除「${name}」嗎？
 無法復原。`))return;try{await deleteDoc(doc(db,'products',pid));showToast(`🗑️ 已刪除：${name}`);}catch(e){showToast('❌ 刪除失敗');}};
 window.openEditProduct=function(pid){
   const p=products.find(x=>x.id===pid);if(!p)return;
@@ -1132,6 +1138,7 @@ window.openEditProduct=function(pid){
 };
 window.closeEditProduct=function(){document.getElementById('edit-product-overlay').classList.remove('open');};
 window.submitEditProduct=async function(){
+  if(!requireRole('owner','manager'))return;
   const pid=document.getElementById('ep-id').value,name=document.getElementById('ep-name').value.trim();
   const cat=document.getElementById('ep-cat').value,subcat=document.getElementById('ep-subcat').value;
   const safe=parseInt(document.getElementById('ep-safe').value)||0;
@@ -1153,6 +1160,7 @@ window.updateEpSubcat=function(sel){
 window.openAddProduct=function(){document.getElementById('ap-name').value='';document.getElementById('ap-safe').value=10;document.getElementById('ap-cat').value='蠟品';updateApSubcat();document.getElementById('add-product-overlay').classList.add('open');};
 window.closeAddProduct=function(){document.getElementById('add-product-overlay').classList.remove('open');};
 window.submitAddProduct=async function(){
+  if(!requireRole('owner','manager'))return;
   const name=document.getElementById('ap-name').value.trim(),cat=document.getElementById('ap-cat').value;
   const subcat=document.getElementById('ap-subcat').value,safe=parseInt(document.getElementById('ap-safe').value)||0;
   if(!name){showToast('⚠️ 請輸入商品名稱');return;}
@@ -1226,20 +1234,14 @@ window.submitTransaction=async function(){
   const btn=document.getElementById('modal-confirm');btn.textContent='處理中...';btn.disabled=true;
   try{
     const pRef=doc(db,'products',pid);
-    // 用 transaction 確保讀最新值再寫，各分店完全獨立計算，庫存歸零時原子清除效期
+    // 用 transaction 確保讀最新值再寫，各分店完全獨立計算
     await runTransaction(db,async(tx)=>{
       const snap=await tx.get(pRef);
       if(!snap.exists())throw new Error('商品不存在');
-      const data=snap.data();
-      const curQty=(data.inventory||{})[store]||0;
+      const curQty=(snap.data().inventory||{})[store]||0;
       if(!isIn&&curQty<qty)throw new Error(`庫存不足！${store} 現有 ${curQty} 件`);
       const newQty=isIn?curQty+qty:curQty-qty;
-      const updateObj={[`inventory.${store}`]:newQty};
-      // ✅ 庫存歸零時同時清除效期（原子操作）
-      if(newQty<=0&&(data.expiry||{})[store]){
-        updateObj[`expiry.${store}`]='';
-      }
-      tx.update(pRef,updateObj);
+      tx.update(pRef,{[`inventory.${store}`]:newQty});
     });
     // 同步本地快取
     const fresh=await getDoc(pRef);
@@ -1286,6 +1288,7 @@ window.openEditLog=function(lid){
 window.closeEditLog=function(){document.getElementById('edit-log-overlay').classList.remove('open');};
 
 window.submitEditLog=async function(){
+  if(!requireRole('owner','manager'))return;
   const lid=document.getElementById('el-lid').value;
   const l=logs.find(x=>x.id===lid);
   if(!l){showToast('❌ 找不到此紀錄');return;}
@@ -1304,7 +1307,7 @@ window.submitEditLog=async function(){
     const pRef=doc(db,'products',l.productId);
 
     if(oldStore===newStore){
-      // 同分店：只需套用差額，庫存歸零時原子清除效期
+      // 同分店：只需套用差額
       const delta=isIn?(newQty-oldQty):-(newQty-oldQty);
       await runTransaction(db,async(tx)=>{
         const snap=await tx.get(pRef);
@@ -1313,15 +1316,10 @@ window.submitEditLog=async function(){
         const curQty=(data.inventory||{})[newStore]||0;
         const result=curQty+delta;
         if(!isIn&&result<0)throw new Error(`庫存不足：${newStore} 目前 ${curQty} 件，無法調整為出貨 ${newQty} 件`);
-        const updateObj={[`inventory.${newStore}`]:result};
-        // ✅ 庫存歸零時同時清除效期
-        if(result<=0&&(data.expiry||{})[newStore]){
-          updateObj[`expiry.${newStore}`]='';
-        }
-        tx.update(pRef,updateObj);
+        tx.update(pRef,{[`inventory.${newStore}`]:result});
       });
     }else{
-      // 分店變更：舊店還原，新店套用，庫存歸零時原子清除效期
+      // 分店變更：舊店還原，新店套用
       await runTransaction(db,async(tx)=>{
         const snap=await tx.get(pRef);
         if(!snap.exists())throw new Error('商品不存在');
@@ -1333,15 +1331,7 @@ window.submitEditLog=async function(){
         const oldResult=oldStoreQty+reverseOld;
         const newResult=newStoreQty+applyNew;
         if(!isIn&&newResult<0)throw new Error(`庫存不足：${newStore} 無法扣到 ${newQty} 件`);
-        const updateObj={[`inventory.${oldStore}`]:oldResult,[`inventory.${newStore}`]:newResult};
-        // ✅ 若庫存歸零則同時清除效期
-        if(oldResult<=0&&(data.expiry||{})[oldStore]){
-          updateObj[`expiry.${oldStore}`]='';
-        }
-        if(newResult<=0&&(data.expiry||{})[newStore]){
-          updateObj[`expiry.${newStore}`]='';
-        }
-        tx.update(pRef,updateObj);
+        tx.update(pRef,{[`inventory.${oldStore}`]:oldResult,[`inventory.${newStore}`]:newResult});
       });
     }
 
@@ -1371,6 +1361,7 @@ window.submitEditLog=async function(){
 };
 
 window.deleteLog=async function(lid,desc){
+  if(!requireRole('owner','manager'))return;
   const logEntry=logs.find(l=>l.id===lid);if(!logEntry){showToast('❌ 找不到此紀錄');return;}
   const isIn=logEntry.type==='進貨';
   if(!confirm(`確定要刪除這筆紀錄嗎？
@@ -1380,36 +1371,39 @@ window.deleteLog=async function(lid,desc){
 ⚠️ ${isIn?'刪除後庫存將扣回':'刪除後庫存將補回'}，此操作無法復原。`))return;
   try{
     const store=logEntry.store,reversal=isIn?-1:1;
-    // 整理需要校正的品項清單
-    const items=logEntry.isBatch&&logEntry.items?logEntry.items:[{productId:logEntry.productId,qty:logEntry.qty}];
+    // 整理需要校正的品項清單（同一 productId 只保留一次，數量加總，避免同商品出現兩次時被覆蓋）
+    const rawItems=logEntry.isBatch&&logEntry.items?logEntry.items:[{productId:logEntry.productId,qty:logEntry.qty}];
+    const itemMap={};
+    rawItems.forEach(it=>{if(!it.productId)return;itemMap[it.productId]=(itemMap[it.productId]||0)+(it.qty||0);});
+    const items=Object.entries(itemMap).map(([productId,qty])=>({productId,qty}));
 
-    // 用 transaction 確保每筆庫存校正都是讀取「當下最新值」再寫入，避免競態導致算錯
-    for(const item of items){
-      if(!item.productId)continue;
-      const pRef=doc(db,'products',item.productId);
-      try{
-        await runTransaction(db,async(tx)=>{
-          const snap=await tx.get(pRef);
-          if(!snap.exists())return; // 商品已被刪除，略過
-          const data=snap.data();
-          const curQty=(data.inventory||{})[store]||0;
-          const newQty=curQty+reversal*item.qty;
-          const updateObj={[`inventory.${store}`]:newQty};
-          // 庫存歸零時同時清除效期（原子操作）
-          if(newQty<=0&&(data.expiry||{})[store]){
-            updateObj[`expiry.${store}`]='';
-          }
-          tx.update(pRef,updateObj);
-        });
-        // 同步本地快取
-        const fresh=await getDoc(pRef);
-        if(fresh.exists()){const idx=products.findIndex(x=>x.id===item.productId);if(idx>=0)products[idx]={id:item.productId,...fresh.data()};}
-        // 仍然呼叫 autoCheckAndClearExpiry（現在讀的是 Firebase 最新值）
-        await autoCheckAndClearExpiry(item.productId,store);
-      }catch(e){
-        console.error(`刪除品項 ${item.productId} 時出錯:`,e);
-        throw e; // 拋出錯誤，中止整個刪除流程
+    // 整批用「單一 transaction」處理：全部品項一起讀、一起寫，要嘛全部成功要嘛全部不套用，
+    // 避免像過去分開多筆 transaction 時，中途失敗導致部分商品庫存已校正、部分沒校正、紀錄卻沒刪除的資料不一致問題
+    await runTransaction(db,async(tx)=>{
+      const snaps=[];
+      for(const item of items){
+        const pRef=doc(db,'products',item.productId);
+        snaps.push({item,pRef,snap:await tx.get(pRef)});
       }
+      for(const {item,pRef,snap} of snaps){
+        if(!snap.exists())continue; // 商品已被刪除，略過
+        const data=snap.data();
+        const curQty=(data.inventory||{})[store]||0;
+        const newQty=curQty+reversal*item.qty;
+        const updateObj={[`inventory.${store}`]:newQty};
+        // 庫存歸零時同時清除效期（原子操作）
+        if(newQty<=0&&(data.expiry||{})[store]){
+          updateObj[`expiry.${store}`]='';
+        }
+        tx.update(pRef,updateObj);
+      }
+    });
+    // 同步本地快取 + 效期清除檢查（transaction 已全部成功才會執行到這裡）
+    for(const item of items){
+      const pRef=doc(db,'products',item.productId);
+      const fresh=await getDoc(pRef);
+      if(fresh.exists()){const idx=products.findIndex(x=>x.id===item.productId);if(idx>=0)products[idx]={id:item.productId,...fresh.data()};}
+      await autoCheckAndClearExpiry(item.productId,store);
     }
 
     await deleteDoc(doc(db,'logs',lid));
@@ -1522,6 +1516,7 @@ window.submitBatch=async function(){
   const entries=Object.entries(batchQtys).filter(([,q])=>q>0);
   const isIn=batchType==='in';
   const isEdit=!!editingLogId;
+  if(isEdit&&!requireRole('owner','manager'))return;
 
   if(!entries.length){showToast('⚠️ 請先選擇品項與數量');return;}
 
@@ -1544,35 +1539,40 @@ window.submitBatch=async function(){
     const logItems=[];
 
     if(isEdit){
-      // ── 編輯模式：套用差額（新數量 - 原數量），用 transaction 確保正確 ──
-      const allPids=new Set([...Object.keys(editingOrigItems),...entries.map(([pid])=>pid)]);
-      for(const pid of allPids){
-        const p=products.find(x=>x.id===pid);if(!p)continue;
-        const oldQty=editingOrigItems[pid]||0;
-        const newQty=batchQtys[pid]||0;
-        const delta=isIn?(newQty-oldQty):-(newQty-oldQty);
-        if(delta!==0){
-          const pRef=doc(db,'products',pid);
-          await runTransaction(db,async(tx)=>{
-            const snap=await tx.get(pRef);
-            if(!snap.exists())return;
-            const data=snap.data();
-            const curQty=(data.inventory||{})[store]||0;
-            const result=curQty+delta;
-            if(!isIn&&result<0)throw new Error(`${p.name} 庫存不足，無法儲存`);
-            const updateObj={[`inventory.${store}`]:result};
-            // ✅ 庫存歸零時同時清除效期
-            if(result<=0&&(data.expiry||{})[store]){
-              updateObj[`expiry.${store}`]='';
-            }
-            tx.update(pRef,updateObj);
-          });
-          const fresh=await getDoc(pRef);
-          if(fresh.exists()){const idx=products.findIndex(x=>x.id===pid);if(idx>=0)products[idx]={id:pid,...fresh.data()};}
-          if(!isIn)await autoCheckAndClearExpiry(pid,store);
+      // ── 編輯模式：套用差額（新數量 - 原數量）──
+      // 全部品項放進「單一 transaction」一次讀、一次寫：要嘛全部套用成功，要嘛整批不生效，
+      // 不會再發生「改了 5 項，第 3 項庫存不足失敗，前 2 項卻已經寫入 Firebase」的半套資料
+      const allPids=[...new Set([...Object.keys(editingOrigItems),...entries.map(([pid])=>pid)])];
+      const pidsToWrite=allPids.filter(pid=>{
+        const oldQty=editingOrigItems[pid]||0,newQty=batchQtys[pid]||0;
+        return (isIn?(newQty-oldQty):-(newQty-oldQty))!==0;
+      });
+      await runTransaction(db,async(tx)=>{
+        const snaps=[];
+        for(const pid of pidsToWrite)snaps.push({pid,ref:doc(db,'products',pid),snap:await tx.get(doc(db,'products',pid))});
+        for(const {pid,ref,snap} of snaps){
+          if(!snap.exists())continue;
+          const data=snap.data();
+          const oldQty=editingOrigItems[pid]||0,newQty=batchQtys[pid]||0;
+          const delta=isIn?(newQty-oldQty):-(newQty-oldQty);
+          const curQty=(data.inventory||{})[store]||0;
+          const result=curQty+delta;
+          if(!isIn&&result<0){const p=products.find(x=>x.id===pid);throw new Error(`${p?.name||'商品'} 庫存不足，無法儲存`);}
+          tx.update(ref,{[`inventory.${store}`]:result});
         }
-        if(newQty>0)logItems.push({productId:pid,name:p.name,qty:newQty});
+      });
+      // transaction 全部成功後才同步快取、清效期、組紀錄內容
+      for(const pid of pidsToWrite){
+        const pRef=doc(db,'products',pid);
+        const fresh=await getDoc(pRef);
+        if(fresh.exists()){const idx=products.findIndex(x=>x.id===pid);if(idx>=0)products[idx]={id:pid,...fresh.data()};}
+        if(!isIn)await autoCheckAndClearExpiry(pid,store);
       }
+      allPids.forEach(pid=>{
+        const p=products.find(x=>x.id===pid);if(!p)return;
+        const newQty=batchQtys[pid]||0;
+        if(newQty>0)logItems.push({productId:pid,name:p.name,qty:newQty});
+      });
       renderCards();updateStats();renderAlert();
       await updateDoc(doc(db,'logs',editingLogId),{
         items:logItems,subtype,status,note,
@@ -1582,27 +1582,25 @@ window.submitBatch=async function(){
       closeBatch();
       showToast(`✅ 批次紀錄已更新（${logItems.length} 項）`);
     }else{
-      // ── 新建模式：每筆都用 transaction，確保各分店數量絕對正確 ──
+      // ── 新建模式：全部品項放進「單一 transaction」，確保要嘛整批都成功寫入，要嘛完全不套用 ──
+      await runTransaction(db,async(tx)=>{
+        const snaps=[];
+        for(const [pid] of entries)snaps.push({pid,ref:doc(db,'products',pid),snap:await tx.get(doc(db,'products',pid))});
+        for(const {pid,ref,snap} of snaps){
+          const p=products.find(x=>x.id===pid);
+          const qty=batchQtys[pid]||0;
+          if(!snap.exists())throw new Error(`商品不存在：${p?.name||pid}`);
+          const curQty=(snap.data().inventory||{})[store]||0;
+          if(!isIn&&curQty<qty)throw new Error(`${p?.name||''} 庫存不足（${store} 現有 ${curQty} 件）`);
+          const newQty=isIn?curQty+qty:curQty-qty;
+          tx.update(ref,{[`inventory.${store}`]:newQty});
+        }
+      });
+      // transaction 全部成功後才同步快取、清效期、組紀錄內容
       for(const [pid,qty] of entries){
         const p=products.find(x=>x.id===pid);if(!p)continue;
-        const pRef=doc(db,'products',pid);
-        await runTransaction(db,async(tx)=>{
-          const snap=await tx.get(pRef);
-          if(!snap.exists())throw new Error(`商品不存在：${p.name}`);
-          const data=snap.data();
-          const curQty=(data.inventory||{})[store]||0;
-          if(!isIn&&curQty<qty)throw new Error(`${p.name} 庫存不足（${store} 現有 ${curQty} 件）`);
-          const newQty=isIn?curQty+qty:curQty-qty;
-          const updateObj={[`inventory.${store}`]:newQty};
-          // ✅ 庫存歸零時同時清除效期
-          if(newQty<=0&&(data.expiry||{})[store]){
-            updateObj[`expiry.${store}`]='';
-          }
-          tx.update(pRef,updateObj);
-        });
         logItems.push({productId:pid,name:p.name,qty});
-        // 同步本地快取
-        const fresh=await getDoc(pRef);
+        const fresh=await getDoc(doc(db,'products',pid));
         if(fresh.exists()){const idx=products.findIndex(x=>x.id===pid);if(idx>=0)products[idx]={id:pid,...fresh.data()};}
         if(!isIn)await autoCheckAndClearExpiry(pid,store);
       }
@@ -1619,6 +1617,7 @@ window.submitBatch=async function(){
 window.openAddUser=function(){['au-username','au-displayname','au-password'].forEach(id=>document.getElementById(id).value='');document.getElementById('au-role').value='staff';document.getElementById('au-store').value='';document.getElementById('add-user-overlay').classList.add('open');};
 window.closeAddUser=function(){document.getElementById('add-user-overlay').classList.remove('open');};
 window.submitAddUser=async function(){
+  if(!requireRole('owner'))return;
   const username=document.getElementById('au-username').value.trim().toLowerCase();
   const displayName=document.getElementById('au-displayname').value.trim();
   const password=document.getElementById('au-password').value;
@@ -1657,6 +1656,7 @@ window.openEditUserRole=function(uid,name,role,store){
 };
 window.closeEditUserRole=function(){document.getElementById('edit-user-overlay').classList.remove('open');};
 window.submitEditUserRole=async function(){
+  if(!requireRole('owner'))return;
   const uid=document.getElementById('eu-uid').value;
   const role=document.getElementById('eu-role').value;
   const store=document.getElementById('eu-store').value;
@@ -1669,54 +1669,95 @@ window.submitEditUserRole=async function(){
   }catch(e){console.error(e);showToast('❌ 更新失敗，請重試');}
 };
 window.resetUserPwd=async function(uid,name){
+  if(!requireRole('owner'))return;
   const pwd=prompt(`重設「${name}」的新密碼（至少6位數）：`);if(!pwd)return;if(pwd.length<6){showToast('⚠️ 密碼至少6位數');return;}
   const hash=await hashPwd(pwd);await updateDoc(doc(db,'users',uid),{passwordHash:hash});showToast(`✅ 已重設 ${name} 的密碼`);
 };
 window.deactivateUser=async function(uid,name){
+  if(!requireRole('owner'))return;
   if(!confirm(`確定要停用帳號「${name}」嗎？`))return;
   await updateDoc(doc(db,'users',uid),{active:false});showToast(`🗑️ 已停用帳號：${name}`);renderUsers();
 };
 
 // ── EXPORT EXCEL ──
-window.exportExcel=function(){
+// 注意：即時同步的 logs 只保留最新 300 筆（listenLogs 有 limit(300)，是為了讓 App 開啟速度快)，
+// 匯出/備份不能只用這份快取，否則超過 300 筆的舊紀錄會直接消失、期初/期末庫存也會算錯。
+// 這裡改成每次匯出都額外向 Firebase 抓「完整」的 logs 集合。
+async function fetchAllLogs(){
+  const snap=await getDocs(query(collection(db,'logs'),orderBy('time','asc')));
+  return snap.docs.map(d=>({id:d.id,...d.data()}));
+}
+window.exportExcel=async function(){
+  if(!requireRole('owner','manager'))return;
   const sf=document.getElementById('log-store')?.value||'',tf=document.getElementById('log-type')?.value||'';
   const stf=document.getElementById('log-subtype')?.value||'',df=document.getElementById('log-date-from')?.value||'',dt=document.getElementById('log-date-to')?.value||'';
-  const filtered=logs.filter(l=>{
+  const btn=document.getElementById('export-btn-wrap');if(btn)btn.style.opacity='0.6';
+  showToast('⏳ 讀取完整紀錄中…');
+  let fullLogs;
+  try{fullLogs=await fetchAllLogs();}
+  catch(e){console.error(e);showToast('❌ 讀取紀錄失敗，請檢查網路');if(btn)btn.style.opacity='1';return;}
+  finally{if(btn)btn.style.opacity='1';}
+
+  const getTime=l=>l.time?.toDate?l.time.toDate():new Date(l.time||0);
+  const filtered=fullLogs.filter(l=>{
     if(sf&&l.store!==sf)return false;if(tf&&l.type!==tf)return false;if(stf&&l.subtype!==stf)return false;
     if(currentStatusFilter==='pending'){if(l.type!=='出貨'||l.status==='已處理')return false;}
     if(currentStatusFilter==='done'){if(l.type!=='出貨'||l.status!=='已處理')return false;}
-    if(df||dt){const t=l.time?.toDate?l.time.toDate():new Date(l.time||0);if(df&&t<new Date(df))return false;if(dt&&t>new Date(dt+'T23:59:59'))return false;}
+    if(df||dt){const t=getTime(l);if(df&&t<new Date(df))return false;if(dt&&t>new Date(dt+'T23:59:59'))return false;}
     return true;
   });
   if(!filtered.length){showToast('⚠️ 目前篩選結果為空');return;}
   const wb=XLSX.utils.book_new(),cw=arr=>arr.map(w=>({wch:w})),sl=sf?[sf]:STORES;
-  const sorted=[...filtered].sort((a,b)=>{const ta=a.time?.toDate?a.time.toDate():new Date(a.time||0),tb=b.time?.toDate?b.time.toDate():new Date(b.time||0);return ta-tb;});
+  const sorted=[...filtered].sort((a,b)=>getTime(a)-getTime(b));
   const allRows=[];
   sorted.forEach(l=>{
-    const t=l.time?.toDate?l.time.toDate():new Date(l.time||Date.now());
+    const t=getTime(l);
     const ds=t.toLocaleDateString('zh-TW',{year:'numeric',month:'2-digit',day:'2-digit'}),ts=t.toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});
     const isIn=l.type==='進貨';const base={date:ds,time:ts,ts:t,isIn,store:l.store,subtype:l.subtype||'—',status:l.status||'待處理',operator:l.operator||'—',processedBy:l.processedBy||'—',note:l.note||'',isBatch:l.isBatch};
     if(l.isBatch&&l.items)l.items.forEach(it=>allRows.push({...base,productName:it.name,productId:it.productId,qty:it.qty}));
     else allRows.push({...base,productName:l.product||'',productId:l.productId,qty:l.qty});
   });
-  const nc={};allRows.forEach(r=>{const k=`${r.productName}|||${r.store}`;if(!nc[k])nc[k]=0;nc[k]+=(r.isIn?r.qty:-r.qty);});
-  const gq=(nm,st)=>{const p=products.find(x=>x.name===nm);return p?(p.inventory||{})[st]||0:0;};
-  const os={};Object.keys(nc).forEach(k=>{const [n,s]=k.split('|||');os[k]=gq(n,s)-nc[k];});
-  const rb={};Object.keys(os).forEach(k=>rb[k]=os[k]);
-  const withBal=allRows.map(r=>{const k=`${r.productName}|||${r.store}`;rb[k]=(rb[k]||0)+(r.isIn?r.qty:-r.qty);return{...r,bal:rb[k]};});
+  // 注意：一律用 productId 當比對鍵，不能用商品名稱——不同分類可能存在同名商品，
+  // 用名稱比對會把不同商品的庫存/歷史混算在一起，導致報表數字錯誤。
+  const gq=(pid,st)=>{const p=products.find(x=>x.id===pid);return p?(p.inventory||{})[st]||0:0;};
+
+  // ── 期初/期末庫存：用「完整」歷史紀錄重新推算，不受篩選條件（分店除外）或匯出區間是否含今天影響 ──
+  // 邏輯：目前即時庫存 = 從商品建立至今全部紀錄的加總。所以只要知道「區間結束後」還發生了多少異動，
+  // 用目前庫存往回扣掉，就能還原「區間結束當下」真正的庫存，區間開始的庫存同理往回推。
+  const dtCutoff=dt?new Date(dt+'T23:59:59'):null;
+  const dfCutoff=df?new Date(df):null;
+  const periodNet={},afterNet={};
+  fullLogs.forEach(l=>{
+    if(sf&&l.store!==sf)return; // 分店庫存彼此獨立，用分店篩選縮小範圍是安全的
+    const t=getTime(l),isIn=l.type==='進貨';
+    const rows=l.isBatch&&l.items?l.items.map(it=>({productId:it.productId,qty:it.qty})):[{productId:l.productId,qty:l.qty}];
+    rows.forEach(({productId,qty})=>{
+      if(!productId)return; // 沒有 productId 的舊紀錄無法安全歸戶，略過（不影響其他商品計算）
+      const k=`${productId}|||${l.store}`,delta=isIn?qty:-qty;
+      const inPeriod=(!dfCutoff||t>=dfCutoff)&&(!dtCutoff||t<=dtCutoff);
+      const afterPeriod=dtCutoff&&t>dtCutoff;
+      if(inPeriod)periodNet[k]=(periodNet[k]||0)+delta;
+      if(afterPeriod)afterNet[k]=(afterNet[k]||0)+delta;
+    });
+  });
+  const getClosing=(pid,st)=>gq(pid,st)-(afterNet[`${pid}|||${st}`]||0);
+  const getOpening=(pid,st)=>getClosing(pid,st)-(periodNet[`${pid}|||${st}`]||0);
+
+  const rb={};
+  const withBal=allRows.map(r=>{const k=`${r.productId}|||${r.store}`;if(rb[k]===undefined)rb[k]=getOpening(r.productId,r.store);rb[k]=rb[k]+(r.isIn?r.qty:-r.qty);return{...r,bal:rb[k]};});
   // Sheet1 庫存總表
   const inv1=products.map(p=>{const inv=p.inventory||{},row={'商品名稱':p.name,'大分類':p.cat,'子分類':p.subcat||'—','安全庫存':p.safe||0};let tot=0;sl.forEach(s=>{row[s]=inv[s]||0;tot+=inv[s]||0;});row['合計']=tot;const il=sl.some(s=>(inv[s]||0)<=(p.safe||0)*.5),iw=!il&&sl.some(s=>(inv[s]||0)<=(p.safe||0));row['狀態']=il?'緊急補貨':iw?'庫存偏低':'正常';return row;});
   const ws1=XLSX.utils.json_to_sheet(inv1);ws1['!cols']=cw([22,8,10,10,...sl.map(()=>8),8,10]);XLSX.utils.book_append_sheet(wb,ws1,'庫存總表');
   // Sheet2 出貨統整
   const outR=withBal.filter(r=>!r.isIn),outS={};
-  outR.forEach(r=>{const k=`${r.productName}|||${r.store}`;if(!outS[k]){outS[k]={商品名稱:r.productName,分店:r.store,期初庫存:os[k]??gq(r.productName,r.store),進貨:0,出售:0,店用:0,贈送:0,出貨合計:0,期末庫存:gq(r.productName,r.store)};}if(r.subtype==='出售')outS[k].出售+=r.qty;else if(r.subtype==='店用')outS[k].店用+=r.qty;else if(r.subtype==='贈送')outS[k].贈送+=r.qty;outS[k].出貨合計+=r.qty;});
-  withBal.filter(r=>r.isIn).forEach(r=>{const k=`${r.productName}|||${r.store}`;if(outS[k])outS[k].進貨+=r.qty;});
+  outR.forEach(r=>{const k=`${r.productId}|||${r.store}`;if(!outS[k]){outS[k]={商品名稱:r.productName,分店:r.store,期初庫存:getOpening(r.productId,r.store),進貨:0,出售:0,店用:0,贈送:0,出貨合計:0,期末庫存:getClosing(r.productId,r.store)};}if(r.subtype==='出售')outS[k].出售+=r.qty;else if(r.subtype==='店用')outS[k].店用+=r.qty;else if(r.subtype==='贈送')outS[k].贈送+=r.qty;outS[k].出貨合計+=r.qty;});
+  withBal.filter(r=>r.isIn).forEach(r=>{const k=`${r.productId}|||${r.store}`;if(outS[k])outS[k].進貨+=r.qty;});
   const ws2=XLSX.utils.json_to_sheet(Object.values(outS).length?Object.values(outS).sort((a,b)=>a.商品名稱.localeCompare(b.商品名稱,'zh-TW')).map(s=>({'商品名稱':s.商品名稱,'分店':s.分店,'期初庫存':s.期初庫存,'進貨':s.進貨,'出售':s.出售,'店用':s.店用,'贈送':s.贈送,'出貨合計':s.出貨合計,'期末庫存':s.期末庫存})):[{'提示':'此期間無出貨'}]);ws2['!cols']=cw([22,8,10,8,10,10,10,10,10]);XLSX.utils.book_append_sheet(wb,ws2,'出貨統整');
   // Sheet3 出貨明細
   const ws3=XLSX.utils.json_to_sheet(outR.length?outR.map(r=>({'日期':r.date,'時間':r.time,'分店':r.store,'商品名稱':r.productName,'出貨數量':r.qty,'操作後庫存':r.bal,'出貨類型':r.subtype,'出貨狀態':r.status,'處理人員':r.processedBy,'操作人員':r.operator,'備註':r.note,'批次':r.isBatch?'是':'否'})):[{'提示':'無出貨'}]);ws3['!cols']=cw([10,10,8,22,8,10,10,8,10,12,16,6]);XLSX.utils.book_append_sheet(wb,ws3,'出貨明細');
   // Sheet4 進貨統整
   const inR=withBal.filter(r=>r.isIn),inS={};
-  inR.forEach(r=>{const k=`${r.productName}|||${r.store}`;if(!inS[k])inS[k]={商品名稱:r.productName,分店:r.store,期初庫存:os[k]??gq(r.productName,r.store),進貨合計:0,期末庫存:gq(r.productName,r.store)};inS[k].進貨合計+=r.qty;});
+  inR.forEach(r=>{const k=`${r.productId}|||${r.store}`;if(!inS[k])inS[k]={商品名稱:r.productName,分店:r.store,期初庫存:getOpening(r.productId,r.store),進貨合計:0,期末庫存:getClosing(r.productId,r.store)};inS[k].進貨合計+=r.qty;});
   const ws4=XLSX.utils.json_to_sheet(Object.values(inS).length?Object.values(inS).sort((a,b)=>a.商品名稱.localeCompare(b.商品名稱,'zh-TW')).map(s=>({'商品名稱':s.商品名稱,'分店':s.分店,'期初庫存':s.期初庫存,'進貨合計':s.進貨合計,'期末庫存':s.期末庫存})):[{'提示':'無進貨'}]);ws4['!cols']=cw([22,8,10,10,10]);XLSX.utils.book_append_sheet(wb,ws4,'進貨統整');
   // Sheet5 進貨明細
   const ws5=XLSX.utils.json_to_sheet(inR.length?inR.map(r=>({'日期':r.date,'時間':r.time,'分店':r.store,'商品名稱':r.productName,'進貨數量':r.qty,'操作後庫存':r.bal,'操作人員':r.operator,'備註':r.note,'批次':r.isBatch?'是':'否'})):[{'提示':'無進貨'}]);ws5['!cols']=cw([10,10,8,22,8,10,12,16,6]);XLSX.utils.book_append_sheet(wb,ws5,'進貨明細');
@@ -1733,11 +1774,14 @@ function checkBackupReminder(){
   if(d>=7){document.getElementById('backup-bar-text').textContent=`距上次備份已 ${d} 天，建議立即備份`;bar.classList.add('show');}
 }
 window.dismissBackup=function(){document.getElementById('backup-bar').classList.remove('show');};
-window.doBackupExport=function(){
+window.doBackupExport=async function(){
+  if(!requireRole('owner','manager'))return;
+  let fullLogs;
+  try{showToast('⏳ 讀取完整紀錄中…');fullLogs=await fetchAllLogs();}catch(e){console.error('fetchAllLogs error:',e);showToast('❌ 讀取紀錄失敗，備份中止');return;}
   const wb=XLSX.utils.book_new(),cw=arr=>arr.map(w=>({wch:w})),today=new Date().toISOString().slice(0,10);
   const inv1=products.map(p=>{const inv=p.inventory||{},ex=p.expiry||{},row={'商品名稱':p.name,'大分類':p.cat,'子分類':p.subcat||'—','安全庫存':p.safe||0};let tot=0;STORES.forEach(s=>{row[s]=inv[s]||0;tot+=inv[s]||0;});row['合計']=tot;STORES.forEach(s=>{if(ex[s])row[`效期_${s}`]=ex[s];});const il=STORES.some(s=>(inv[s]||0)<=(p.safe||0)*.5),iw=!il&&STORES.some(s=>(inv[s]||0)<=(p.safe||0));row['狀態']=il?'緊急補貨':iw?'庫存偏低':'正常';return row;});
   const ws1=XLSX.utils.json_to_sheet(inv1);ws1['!cols']=cw([22,8,10,10,8,8,8,8,8,10,10,10,10,10]);XLSX.utils.book_append_sheet(wb,ws1,'庫存總表');
-  const rows=[];[...logs].sort((a,b)=>{const ta=a.time?.toDate?a.time.toDate():new Date(a.time||0),tb=b.time?.toDate?b.time.toDate():new Date(b.time||0);return ta-tb;}).forEach(l=>{
+  const rows=[];[...fullLogs].sort((a,b)=>{const ta=a.time?.toDate?a.time.toDate():new Date(a.time||0),tb=b.time?.toDate?b.time.toDate():new Date(b.time||0);return ta-tb;}).forEach(l=>{
     const t=l.time?.toDate?l.time.toDate():new Date(l.time||Date.now());
     const ds=t.toLocaleDateString('zh-TW',{year:'numeric',month:'2-digit',day:'2-digit'}),ts=t.toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit',hour12:false});const isIn=l.type==='進貨';
     if(l.isBatch&&l.items)l.items.forEach(it=>rows.push({'日期':ds,'時間':ts,'分店':l.store,'類型':l.type,'出貨類型':isIn?'—':l.subtype||'—','出貨狀態':isIn?'—':l.status||'待處理','商品名稱':it.name,'數量':it.qty,'操作人員':l.operator||'—','備註':l.note||'','批次':'是'}));
