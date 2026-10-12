@@ -460,6 +460,10 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:0
     </div>
     <div class="log-filters-wrap">
       <div class="filter-row">
+        <input class="fsel" type="text" id="log-search" placeholder="🔍 搜尋商品名稱或備註（例如客戶姓名）" oninput="renderLog()" style="flex:2" autocapitalize="none">
+        <button class="reset-btn" id="log-search-clear" onclick="document.getElementById('log-search').value='';renderLog()" style="display:none">✕</button>
+      </div>
+      <div class="filter-row">
         <select class="fsel" id="log-store" onchange="renderLog()" oninput="renderLog()"><option value="">全部分店</option><option>台北</option><option>新竹</option><option>台中</option><option>高雄</option></select>
         <select class="fsel" id="log-type" onchange="renderLog()" oninput="renderLog()"><option value="">全部類型</option><option value="進貨">進貨</option><option value="出貨">出貨</option></select>
         <select class="fsel" id="log-subtype" onchange="renderLog()" oninput="renderLog()"><option value="">全部出貨</option><option value="出售">💰 出售</option><option value="店用">🏪 店用</option><option value="贈送">🎁 贈送</option></select>
@@ -1028,14 +1032,23 @@ function renderCards(){
 }
 
 // ── LOG ──
+function logMatchesKeyword(l,kf){
+  if(!kf)return true;
+  if((l.note||'').toLowerCase().includes(kf))return true;
+  if(l.isBatch&&l.items)return l.items.some(it=>(it.name||'').toLowerCase().includes(kf));
+  return (l.product||'').toLowerCase().includes(kf);
+}
 function renderLog(){
   const sf=document.getElementById('log-store')?.value||'';
   const tf=document.getElementById('log-type')?.value||'';
   const stf=document.getElementById('log-subtype')?.value||'';
   const df=document.getElementById('log-date-from')?.value||'';
   const dt=document.getElementById('log-date-to')?.value||'';
+  const kf=(document.getElementById('log-search')?.value||'').trim().toLowerCase();
+  const clearBtn=document.getElementById('log-search-clear');if(clearBtn)clearBtn.style.display=kf?'':'none';
   const filtered=logs.filter(l=>{
     if(sf&&l.store!==sf)return false;if(tf&&l.type!==tf)return false;if(stf&&l.subtype!==stf)return false;
+    if(!logMatchesKeyword(l,kf))return false;
     if(currentStatusFilter==='pending'){if(l.type!=='出貨'||l.status==='已處理')return false;}
     if(currentStatusFilter==='done'){if(l.type!=='出貨'||l.status!=='已處理')return false;}
     if(df||dt){const t=l.time?.toDate?l.time.toDate():new Date(l.time||0);if(df&&t<new Date(df))return false;if(dt&&t>new Date(dt+'T23:59:59'))return false;}
@@ -1689,6 +1702,7 @@ window.exportExcel=async function(){
   if(!requireRole('owner','manager'))return;
   const sf=document.getElementById('log-store')?.value||'',tf=document.getElementById('log-type')?.value||'';
   const stf=document.getElementById('log-subtype')?.value||'',df=document.getElementById('log-date-from')?.value||'',dt=document.getElementById('log-date-to')?.value||'';
+  const kf=(document.getElementById('log-search')?.value||'').trim().toLowerCase();
   const btn=document.getElementById('export-btn-wrap');if(btn)btn.style.opacity='0.6';
   showToast('⏳ 讀取完整紀錄中…');
   let fullLogs;
@@ -1699,6 +1713,7 @@ window.exportExcel=async function(){
   const getTime=l=>l.time?.toDate?l.time.toDate():new Date(l.time||0);
   const filtered=fullLogs.filter(l=>{
     if(sf&&l.store!==sf)return false;if(tf&&l.type!==tf)return false;if(stf&&l.subtype!==stf)return false;
+    if(!logMatchesKeyword(l,kf))return false;
     if(currentStatusFilter==='pending'){if(l.type!=='出貨'||l.status==='已處理')return false;}
     if(currentStatusFilter==='done'){if(l.type!=='出貨'||l.status!=='已處理')return false;}
     if(df||dt){const t=getTime(l);if(df&&t<new Date(df))return false;if(dt&&t>new Date(dt+'T23:59:59'))return false;}
